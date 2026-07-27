@@ -184,10 +184,17 @@ def test_sampled_blast_fully_unsupports_a_slab(seed: int, collapse_params) -> No
     )
 
 
-def test_slab_supports_covers_every_slab(structure) -> None:
+def test_slab_supports_covers_every_bay(structure) -> None:
+    """Support is tracked per bay, since a bay's fragments are welded as one."""
+    from cascade.damage import _bay_key
+
     supports = slab_supports(structure)
-    slabs = {m.name for m in structure.members if m.kind is MemberKind.SLAB}
-    assert slabs <= set(supports), "some slab has no recorded support columns"
+    bays = {
+        _bay_key(m.name)
+        for m in structure.members
+        if m.kind is MemberKind.SLAB
+    }
+    assert bays <= set(supports), "some bay's floor plate has no support columns"
     assert all(cols for cols in supports.values())
 
 

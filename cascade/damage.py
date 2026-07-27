@@ -157,12 +157,25 @@ def _farthest_corner_distance(
 
 
 def slab_supports(structure: Structure) -> dict[str, set[str]]:
-    """Map each slab to the set of columns bearing directly beneath it."""
+    """Map each bay's floor plate to the columns bearing beneath it.
+
+    Keyed by bay rather than by slab fragment.  A bay's slab is cut into
+    several boxes wherever a connector punches through it, but those fragments
+    are welded back together as one continuous pour -- so a strip beside a
+    stairwell with no column of its own is still held up, and the plate only
+    falls when the whole bay loses its support.
+    """
     out: dict[str, set[str]] = {}
     for weld in structure.welds:
         if weld.name.startswith("w_head_col") and weld.body_b is not None:
-            out.setdefault(weld.body_b, set()).add(weld.body_a)
+            out.setdefault(_bay_key(weld.body_b), set()).add(weld.body_a)
     return out
+
+
+def _bay_key(slab_name: str) -> str:
+    """Strip a slab fragment index: slab_s1_b3_2 -> slab_s1_b3."""
+    head, _, tail = slab_name.rpartition("_")
+    return head if tail.isdigit() and head else slab_name
 
 
 def _unsupports_a_slab(

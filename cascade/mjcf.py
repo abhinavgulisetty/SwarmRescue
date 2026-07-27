@@ -29,6 +29,7 @@ _MATERIALS: dict[MemberKind, tuple[float, float, float, float]] = {
     MemberKind.BEAM: (0.38, 0.39, 0.42, 1.0),
     MemberKind.SLAB: (0.62, 0.61, 0.58, 1.0),
     MemberKind.WALL: (0.80, 0.78, 0.73, 1.0),
+    MemberKind.STAIR: (0.55, 0.50, 0.44, 1.0),
 }
 
 #: Solver configuration, chosen by benchmark *and* a correctness check.
@@ -235,7 +236,10 @@ def _add_worldbody(
 def _add_member(world: ET.Element, member: Member) -> None:
     cx, cy, cz = member.center
     hx, hy, hz = member.half_extents
-    body = ET.SubElement(world, "body", name=member.name, pos=f"{cx} {cy} {cz}")
+    attrs = {"name": member.name, "pos": f"{cx} {cy} {cz}"}
+    if member.quat != (1.0, 0.0, 0.0, 0.0):
+        attrs["quat"] = " ".join(f"{q}" for q in member.quat)
+    body = ET.SubElement(world, "body", **attrs)
     # Every structural member is a free body.  It is held up by its welds, not
     # by being nailed to the world -- which is what lets it fall when they go.
     ET.SubElement(body, "freejoint", name=f"j_{member.name}")

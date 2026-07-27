@@ -86,12 +86,29 @@ WALL_HEAD_GAP_M: float = 0.025
 #: so a robot is not scraped by a wall edge exactly at the opening, metres.
 OPENING_CLEARANCE_M: float = 0.05
 
+#: Stair geometry.  A flight is modelled as one inclined slab rather than as
+#: individual treads.
+#:
+#: The abstraction is deliberate and it is what a tracked robot actually
+#: experiences: climbing a stair, its tracks ride the step nosings, which lie
+#: on a plane.  Discretising into ~18 tread boxes per storey would add ~70
+#: bodies to a model that already carries 500, for geometry the robot's
+#: contact patch spans anyway.  Lidar sees a smooth ramp rather than treads,
+#: which is the honest cost of the simplification.
+STAIR_PITCH_DEG: float = 32.0
+STAIR_THICKNESS_M: float = 0.18
+#: Fraction of a stairwell's width taken by one flight of a switchback.
+STAIR_FLIGHT_WIDTH_FRACTION: float = 0.45
+#: Landing depth as a fraction of the stairwell's run direction.
+STAIR_LANDING_FRACTION: float = 0.30
+
 
 class MemberKind(str, Enum):
     COLUMN = "column"
     BEAM = "beam"
     SLAB = "slab"
     WALL = "wall"
+    STAIR = "stair"
 
     @property
     def is_load_bearing(self) -> bool:
@@ -110,6 +127,9 @@ class Member:
     size: tuple[float, float, float]
     storey: int
     density: float
+    #: Body orientation as a (w, x, y, z) quaternion.  Identity for everything
+    #: except stair flights, which are inclined.
+    quat: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0)
 
     @property
     def half_extents(self) -> tuple[float, float, float]:
@@ -245,6 +265,9 @@ def build_structure(plan: FloorPlan) -> Structure:
 
     nodes = column_nodes(plan.bays)
     spans = beam_spans(plan.bays)
+    # Every vertical connector punches through every slab, all the way up.
+    connector_openings = tuple(c.rect for c in plan.connectors)
+    pieces = slab_pieces(plan.bays, connector_openings)
     h = params.storey_height_m
 
     for storey in range(params.n_storeys):
@@ -253,7 +276,9 @@ def build_structure(plan: FloorPlan) -> Structure:
 
         members.extend(_columns(nodes, storey, z_floor, params))
         members.extend(_beams(spans, storey, z_ceiling, params))
-        members.extend(_slabs(plan.bays, storey, z_ceiling, params))
+        members.extend(
+            _slabs(plan.bays, storey, z_ceiling, params, connector_openings)
+        )
 
         walls = _walls(
             plan.storeys[storey].rooms,
@@ -264,22 +289,30 @@ def build_structure(plan: FloorPlan) -> Structure:
             params,
         )
         members.extend(walls)
+
+        stairs = _stairs(plan, storey, z_floor, params)
+        members.extend(stairs)
+        welds.extend(_wall_welds(stairs, storey, plan, pieces))
         # Partitions rest on the floor beneath them: the ground on storey 0,
         # otherwise the slab that forms this storey's floor.
-        welds.extend(_wall_welds(walls, storey, plan))
+        welds.extend(_wall_welds(walls, storey, plan, pieces))
 
-    welds.extend(_load_path_welds(nodes, spans, plan, params))
+    welds.extend(_load_path_welds(nodes, spans, plan, params, pieces))
+    welds.extend(_slab_continuity_welds(pieces, params))
     return Structure(params=params, members=tuple(members), welds=tuple(welds))
 
 
 def _wall_welds(
-    walls: list[Member], storey: int, plan: FloorPlan
+    walls: list[Member],
+    storey: int,
+    plan: FloorPlan,
+    pieces: tuple[tuple[Rect, ...], ...],
 ) -> list[Weld]:
     """Anchor each partition to the floor it stands on."""
     welds: list[Weld] = []
     for wall in walls:
         x, y, _ = wall.center
-        below = None if storey == 0 else _slab_under(x, y, storey - 1, plan)
+        below = None if storey == 0 else _slab_under(x, y, storey - 1, plan, pieces)
         welds.append(Weld(name=f"w_{wall.name}", body_a=wall.name, body_b=below))
     return welds
 
@@ -338,21 +371,165 @@ def _beams(
     return out
 
 
+def slab_pieces(
+    bays: tuple[Rect, ...], openings: tuple[Rect, ...]
+) -> tuple[tuple[Rect, ...], ...]:
+    """How each bay's slab is split around the connector openings.
+
+    One source of truth: the slab bodies and the load-path welds must agree on
+    which fragments exist, or welds reference slabs that were never emitted.
+    """
+    out: list[tuple[Rect, ...]] = []
+    for bay in bays:
+        pieces = [bay]
+        for hole in openings:
+            pieces = [
+                piece for part in pieces for piece in _subtract_rect(part, hole)
+            ]
+        out.append(tuple(pieces))
+    return tuple(out)
+
+
 def _slabs(
-    bays: tuple[Rect, ...], storey: int, z_ceiling: float, params: BuildingParams
+    bays: tuple[Rect, ...],
+    storey: int,
+    z_ceiling: float,
+    params: BuildingParams,
+    openings: tuple[Rect, ...] = (),
 ) -> list[Member]:
-    """The slab above `storey` -- i.e. the floor of the storey above, or the
-    roof for the topmost storey."""
+    """The slab above `storey` -- the floor of the storey above, or the roof.
+
+    Vertical connectors are punched through: a solid bay-sized plate would cap
+    every stairwell and shaft at every level.  That is not a detail -- stairs
+    would run straight into the ceiling, and the connector would stop being a
+    continuous chimney, which is the mechanism SS4.3(b) needs to make smoke
+    climb faster than it crosses corridors.
+    """
     t = params.slab_thickness_m
     out: list[Member] = []
-    for i, bay in enumerate(bays):
-        cx, cy = bay.center
+    for i, pieces in enumerate(slab_pieces(bays, openings)):
+        for j, piece in enumerate(pieces):
+            cx, cy = piece.center
+            out.append(
+                Member(
+                    name=f"slab_s{storey}_b{i}_{j}",
+                    kind=MemberKind.SLAB,
+                    center=(cx, cy, z_ceiling - 0.5 * t),
+                    size=(piece.width, piece.height, t),
+                    storey=storey,
+                    density=CONCRETE_DENSITY_KG_M3,
+                )
+            )
+    return out
+
+
+#: Slab fragments thinner than this are dropped rather than emitted as slivers.
+_MIN_SLAB_PIECE_M: float = 0.05
+
+
+def _subtract_rect(outer: Rect, hole: Rect) -> list[Rect]:
+    """Decompose `outer` minus `hole` into at most four rectangles.
+
+    Returns `[outer]` unchanged when they do not overlap, so this is safe to
+    fold over every connector in the building.
+    """
+    if not outer.overlaps(hole, tol=1e-9):
+        return [outer]
+
+    lo_x = max(outer.x0, hole.x0)
+    hi_x = min(outer.x1, hole.x1)
+    lo_y = max(outer.y0, hole.y0)
+    hi_y = min(outer.y1, hole.y1)
+
+    pieces: list[Rect] = []
+    if lo_x - outer.x0 > _MIN_SLAB_PIECE_M:
+        pieces.append(Rect(outer.x0, outer.y0, lo_x, outer.y1))
+    if outer.x1 - hi_x > _MIN_SLAB_PIECE_M:
+        pieces.append(Rect(hi_x, outer.y0, outer.x1, outer.y1))
+    if lo_y - outer.y0 > _MIN_SLAB_PIECE_M:
+        pieces.append(Rect(lo_x, outer.y0, hi_x, lo_y))
+    if outer.y1 - hi_y > _MIN_SLAB_PIECE_M:
+        pieces.append(Rect(lo_x, hi_y, hi_x, outer.y1))
+    return pieces
+
+
+
+def _stairs(
+    plan: FloorPlan, storey: int, z_floor: float, params: BuildingParams
+) -> list[Member]:
+    """Build a switchback stair flight in every stairwell, for one storey.
+
+    Two inclined flights rise half a storey each, joined by a level landing at
+    mid-height.  A single straight flight does not fit: at a 32 degree pitch a
+    3 m storey needs a 4.8 m run, which is longer than the stairwell.
+    """
+    import math
+
+    out: list[Member] = []
+    pitch = math.radians(STAIR_PITCH_DEG)
+    half_rise = 0.5 * params.storey_height_m
+    run = half_rise / math.tan(pitch)
+    flight_length = math.hypot(run, half_rise)
+
+    for index, connector in enumerate(plan.stairwells()):
+        rect = connector.rect
+        # The flights run along the stairwell's longer axis.
+        along_x = rect.width >= rect.height
+        run_extent = rect.width if along_x else rect.height
+        side_extent = rect.height if along_x else rect.width
+        if run_extent < run + 0.2 or side_extent < 0.8:
+            continue
+
+        flight_width = STAIR_FLIGHT_WIDTH_FRACTION * side_extent
+        cx, cy = rect.center
+        # Two flights sit side by side across the stairwell's short axis.
+        offsets = (-0.25 * side_extent, +0.25 * side_extent)
+        run_start = (rect.x0 if along_x else rect.y0) + 0.5 * (run_extent - run)
+
+        for leg, offset in enumerate(offsets):
+            rising = leg == 0
+            mid_run = run_start + 0.5 * run
+            z_mid = z_floor + (0.25 + 0.5 * leg) * params.storey_height_m
+            # A quarter turn about the axis across the run tilts the slab; the
+            # second leg climbs back the other way, hence the sign flip.
+            angle = pitch if rising else -pitch
+            half = 0.5 * angle
+            if along_x:
+                center = (mid_run, cy + offset, z_mid)
+                size = (flight_length, flight_width, STAIR_THICKNESS_M)
+                quat = (math.cos(half), 0.0, math.sin(half), 0.0)
+            else:
+                center = (cx + offset, mid_run, z_mid)
+                size = (flight_width, flight_length, STAIR_THICKNESS_M)
+                quat = (math.cos(half), -math.sin(half), 0.0, 0.0)
+
+            out.append(
+                Member(
+                    name=f"stair_s{storey}_c{index}_f{leg}",
+                    kind=MemberKind.STAIR,
+                    center=center,
+                    size=size,
+                    storey=storey,
+                    density=CONCRETE_DENSITY_KG_M3,
+                    quat=quat,
+                )
+            )
+
+        # Landing at mid-height, spanning the stairwell where the flights meet.
+        landing_depth = max(0.6, STAIR_LANDING_FRACTION * run_extent)
+        landing_run = run_start + run + 0.5 * landing_depth
+        if along_x:
+            lcenter = (landing_run, cy, z_floor + half_rise)
+            lsize = (landing_depth, side_extent, STAIR_THICKNESS_M)
+        else:
+            lcenter = (cx, landing_run, z_floor + half_rise)
+            lsize = (side_extent, landing_depth, STAIR_THICKNESS_M)
         out.append(
             Member(
-                name=f"slab_s{storey}_b{i}",
-                kind=MemberKind.SLAB,
-                center=(cx, cy, z_ceiling - 0.5 * t),
-                size=(bay.width, bay.height, t),
+                name=f"stair_s{storey}_c{index}_landing",
+                kind=MemberKind.STAIR,
+                center=lcenter,
+                size=lsize,
                 storey=storey,
                 density=CONCRETE_DENSITY_KG_M3,
             )
@@ -497,11 +674,36 @@ def _split_by_openings(
 # --- the load path -----------------------------------------------------------
 
 
+def _slab_continuity_welds(
+    pieces: tuple[tuple[Rect, ...], ...], params: BuildingParams
+) -> list[Weld]:
+    """Join the fragments a bay's slab was cut into.
+
+    Splitting a slab around a connector opening is a modelling artifact -- the
+    real floor is one continuous pour -- so the fragments must be tied back
+    together.  Without this a strip of floor beside a stairwell has no column
+    directly beneath it and simply falls out of an intact building.
+    """
+    welds: list[Weld] = []
+    for storey in range(params.n_storeys):
+        for bay, bay_pieces in enumerate(pieces):
+            for j in range(1, len(bay_pieces)):
+                welds.append(
+                    Weld(
+                        name=f"w_slabjoin_s{storey}_b{bay}_{j}",
+                        body_a=f"slab_s{storey}_b{bay}_{j}",
+                        body_b=f"slab_s{storey}_b{bay}_0",
+                    )
+                )
+    return welds
+
+
 def _load_path_welds(
     nodes: tuple[tuple[float, float], ...],
     spans: tuple[tuple[Axis, float, float, float], ...],
     plan: FloorPlan,
     params: BuildingParams,
+    pieces: tuple[tuple[Rect, ...], ...],
 ) -> list[Weld]:
     """Wire the load path: ground -> columns -> slabs -> columns above.
 
@@ -516,19 +718,19 @@ def _load_path_welds(
                 # Storey-0 columns are fixed to the ground.
                 welds.append(Weld(name=f"w_foot_{col}", body_a=col, body_b=None))
             else:
-                for k, slab in enumerate(_slabs_at(x, y, storey - 1, plan)):
+                for k, slab in enumerate(_slabs_at(x, y, storey - 1, plan, pieces)):
                     welds.append(
                         Weld(name=f"w_foot_{col}_{k}", body_a=col, body_b=slab)
                     )
             # The head carries every slab bearing on this node.
-            for k, slab in enumerate(_slabs_at(x, y, storey, plan)):
+            for k, slab in enumerate(_slabs_at(x, y, storey, plan, pieces)):
                 welds.append(Weld(name=f"w_head_{col}_{k}", body_a=col, body_b=slab))
 
         for i, (axis, at, lo, hi) in enumerate(spans):
             beam = f"beam_s{storey}_e{i}"
             mid = 0.5 * (lo + hi)
             bx, by = (mid, at) if axis is Axis.X else (at, mid)
-            for k, slab in enumerate(_slabs_at(bx, by, storey, plan)):
+            for k, slab in enumerate(_slabs_at(bx, by, storey, plan, pieces)):
                 welds.append(Weld(name=f"w_{beam}_{k}", body_a=beam, body_b=slab))
 
     return welds
@@ -579,7 +781,13 @@ def overlapping_pairs(
     return tuple(out)
 
 
-def _slabs_at(x: float, y: float, storey: int, plan: FloorPlan) -> tuple[str, ...]:
+def _slabs_at(
+    x: float,
+    y: float,
+    storey: int,
+    plan: FloorPlan,
+    pieces: tuple[tuple[Rect, ...], ...],
+) -> tuple[str, ...]:
     """Names of *every* slab above `storey` that covers (x, y).
 
     A column standing where four bays meet carries all four slabs, not
@@ -589,13 +797,20 @@ def _slabs_at(x: float, y: float, storey: int, plan: FloorPlan) -> tuple[str, ..
     group of columns left neighbouring slabs still nominally supported.
     """
     return tuple(
-        f"slab_s{storey}_b{i}"
-        for i, bay in enumerate(plan.bays)
-        if bay.contains_point(x, y, tol=_SUPPORT_TOL_M)
+        f"slab_s{storey}_b{i}_{j}"
+        for i, bay_pieces in enumerate(pieces)
+        for j, piece in enumerate(bay_pieces)
+        if piece.contains_point(x, y, tol=_SUPPORT_TOL_M)
     )
 
 
-def _slab_under(x: float, y: float, storey: int, plan: FloorPlan) -> str | None:
+def _slab_under(
+    x: float,
+    y: float,
+    storey: int,
+    plan: FloorPlan,
+    pieces: tuple[tuple[Rect, ...], ...],
+) -> str | None:
     """The single slab a partition rests on -- walls need only one anchor."""
-    slabs = _slabs_at(x, y, storey, plan)
+    slabs = _slabs_at(x, y, storey, plan, pieces)
     return slabs[0] if slabs else None
