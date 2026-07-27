@@ -152,18 +152,10 @@ class BuildingParams:
 class CollapseParams:
     """Stage 3 -- collapse by simulation, not by hand."""
 
-    #: Columns destroyed outright by the blast, sampled from the damage kernel.
-    #: The frame carries a ~3.6x static safety margin, so a handful of
-    #: scattered failures redistributes harmlessly; a partial collapse needs a
-    #: contiguous group to go at once.
-    n_initiating_failures: int = 8
-    #: Spatial std-dev of the damage kernel about the blast centroid, metres.
-    #: Tight enough that the sampled columns are neighbours rather than
-    #: sprinkled across the whole footprint.
-    damage_kernel_sigma_m: float = 3.5
-    #: Every ground column within this radius of the blast centroid is
-    #: destroyed outright, guaranteeing the damage is contiguous.
-    blast_radius_m: float = 6.0
+    #: Radius of the blast, metres.  Everything within this horizontal
+    #: distance of the centroid is damaged, at every storey, so the damage is
+    #: a contiguous full-height section rather than scattered points.
+    blast_radius_m: float = 6.5
     #: Wall-clock physics simulated after release, seconds (proposal: 5-10 s).
     settle_seconds: float = 8.0
     #: Integrator step, seconds.  Small enough for stiff slab-on-slab contact.
@@ -173,29 +165,22 @@ class CollapseParams:
     quiescent_kinetic_energy_j: float = 5.0
     quiescent_ticks: int = 250
 
-    # -- progressive failure --
-    #: Steps between overload checks.  The cascade evolves over tens of
-    #: milliseconds, so checking every step buys nothing but wall-clock.
-    overload_check_interval: int = 20
-    #: A member fails when its axial load exceeds this multiple of its yield
-    #: threshold.  Above 1.0 to allow for dynamic amplification: debris
-    #: landing on a slab spikes the contact force well past the static load
-    #: the member is sized for.
-    overload_safety_factor: float = 1.5
-    #: Consecutive overload checks a member must fail before it is destroyed.
-    #: A single spike is an impulse, which real members survive; failure needs
-    #: the load to be *sustained*.  Without this the first impact overloads
-    #: everything it touches and the cascade consumes the whole building.
-    overload_persistence_checks: int = 3
-    #: Hard cap on cascade failures, so a pathological seed cannot demolish
-    #: the entire building and leave nothing to search.  Set well above the
-    #: ~60-90 a typical seed reaches, so the cascade normally stops because
-    #: the structure found equilibrium rather than because it hit this limit.
-    max_cascade_failures: int = 150
+    # -- blast extent --
+    #: Bounds on how much of the ground frame the blast may take out, as a
+    #: fraction of ground columns.  Too little and no section comes down; too
+    #: much and there is no building left to search, which is not a rescue
+    #: scenario.
+    min_destroyed_column_fraction: float = 0.15
+    max_destroyed_column_fraction: float = 0.40
 
     def __post_init__(self) -> None:
-        _require(self.n_initiating_failures >= 1, "need at least one initiating failure")
         _require(self.settle_seconds > 0.0, "settle_seconds must be positive")
+        _require(self.blast_radius_m > 0.0, "blast_radius_m must be positive")
+        _require(
+            0.0 < self.min_destroyed_column_fraction
+            <= self.max_destroyed_column_fraction < 1.0,
+            "destroyed-column fractions must satisfy 0 < min <= max < 1",
+        )
         _require(self.timestep_s > 0.0, "timestep_s must be positive")
 
     @property

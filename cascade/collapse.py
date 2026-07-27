@@ -1,10 +1,10 @@
 """Stage 3 -- collapse by simulation, not by hand.
 
-We sample `k` initiating failures from a spatial damage kernel, deactivate
-those welds, and run MuJoCo forward.  Slabs pancake, beams rotate, debris
-piles form.  Nothing about the resulting rubble field is authored: it is
-whatever the contact solver produced, so mass is conserved, piles hold an
-angle of repose, and voids exist under leaning slabs.
+A blast destroys the columns and connections inside its radius (see
+`cascade.damage`), and MuJoCo is run forward from there.  Slabs pancake, beams
+rotate, debris piles form.  Nothing about the resulting rubble field is
+authored: it is whatever the contact solver produced, so mass is conserved,
+piles hold an angle of repose, and voids exist under leaning slabs.
 
 The settled state is cached under the seed, so every downstream experiment is
 reproducible without paying for the collapse again.  The cache key includes a
@@ -22,20 +22,16 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
+from .damage import BlastDamage, sample_damage
 from .params import CollapseParams
-from .rng import stage_rng
-from .structure import MemberKind, Structure
+from .structure import Structure
 
 #: Where settled keyframes live.  Regenerable from (seed, generator), so the
 #: directory is a cache and is git-ignored.
 CACHE_DIR = Path(__file__).resolve().parent / "cache"
 
 #: Cache format version.  Bump to invalidate every stored keyframe.
-CACHE_VERSION: int = 1
-
-#: Only load-bearing welds are eligible as initiating failures.  Releasing a
-#: partition wall's weld drops one wall and teaches us nothing about collapse.
-_INITIATOR_PREFIXES = ("w_foot_col", "w_head_col")
+CACHE_VERSION: int = 2
 
 #: Where pulverized members are parked: far below the ground plane, out of the
 #: rubble field and out of the render.  They keep their degrees of freedom (a
@@ -43,18 +39,13 @@ _INITIATOR_PREFIXES = ("w_foot_col", "w_head_col")
 #: nothing.
 _DEBRIS_DISPOSAL_Z: float = -500.0
 
-#: How many blast centroids to try before accepting the most damaging one.
-_MAX_BLAST_ATTEMPTS: int = 24
-
 
 @dataclass(frozen=True, slots=True)
 class CollapseResult:
     """The settled outcome of one seeded collapse."""
 
     seed: int
-    #: Columns destroyed by the blast itself, before any cascade.
-    initiating_members: tuple[str, ...]
-    blast_center: tuple[float, float, float]
+    damage: BlastDamage
     qpos: np.ndarray
     steps_simulated: int
     settled_early: bool
@@ -62,17 +53,12 @@ class CollapseResult:
     peak_kinetic_energy_j: float
     final_kinetic_energy_j: float
     model_hash: str
-    #: Every member destroyed, initiating failures plus the cascade.
-    failed_members: tuple[str, ...] = ()
-    #: (step, member) for each cascade failure, in the order they happened.
-    cascade: tuple[tuple[int, str], ...] = ()
 
     @property
     def summary(self) -> str:
         mode = "quiescent" if self.settled_early else "time-limited"
         return (
-            f"seed={self.seed} initiating={len(self.initiating_members)} "
-            f"cascade={len(self.cascade)} failed={len(self.failed_members)} "
+            f"seed={self.seed} {self.damage.summary} | "
             f"steps={self.steps_simulated} ({mode}) "
             f"peakKE={self.peak_kinetic_energy_j / 1e6:.2f} MJ "
             f"in {self.wall_time_s:.1f} s"
@@ -84,109 +70,7 @@ def model_hash(xml: str) -> str:
     return hashlib.sha256(xml.encode("utf-8")).hexdigest()[:16]
 
 
-# --- initiating failures -----------------------------------------------------
-
-
-def sample_initiating_members(
-    structure: Structure,
-    seed: int,
-    params: CollapseParams,
-) -> tuple[tuple[str, ...], tuple[float, float, float]]:
-    """Choose which columns the blast destroys, from a spatial damage kernel.
-
-    A blast centroid is sampled in the building's lower storeys, and each
-    column's destruction probability decays as a Gaussian in its distance from
-    that centroid.  Two properties matter and both come from the kernel:
-
-    * Damage is **localised**.  Failures scattered uniformly produce a
-      uniformly sagging building, which looks nothing like a partial collapse.
-    * Damage is **clustered enough to matter**.  This frame carries a ~3.6x
-      static safety margin, so removing a few columns scattered across an
-      18-node grid changes nothing; the load simply redistributes.  A collapse
-      requires a contiguous group of columns to go at once, leaving a slab
-      genuinely unsupported over a full bay.
-    """
-    rng = stage_rng(seed, "collapse")
-
-    columns = structure.of_kind(MemberKind.COLUMN)
-    if not columns:
-        return (), (0.0, 0.0, 0.0)
-
-    # Initiate at the base: destroying columns higher up leaves the storeys
-    # below intact and the building simply stands on the stump.
-    ground = [c for c in columns if c.storey == 0] or list(columns)
-    supports = slab_supports(structure)
-
-    xs = [c.center[0] for c in ground]
-    ys = [c.center[1] for c in ground]
-
-    best: tuple[str, ...] = ()
-    blast = (0.0, 0.0, 0.0)
-    for attempt in range(_MAX_BLAST_ATTEMPTS):
-        center = (
-            float(rng.uniform(min(xs), max(xs))),
-            float(rng.uniform(min(ys), max(ys))),
-            0.0,
-        )
-        # Widen the blast on later attempts rather than resampling forever.
-        radius = params.blast_radius_m * (1.0 + 0.2 * attempt)
-        destroyed = {
-            c.name
-            for c in ground
-            if (c.center[0] - center[0]) ** 2 + (c.center[1] - center[1]) ** 2
-            <= radius**2
-        }
-        if len(destroyed) > len(best):
-            best, blast = tuple(sorted(destroyed)), center
-
-        # The precondition for a collapse: at least one slab must lose *every*
-        # column beneath it.  A blast that leaves each slab still propped up
-        # somewhere redistributes load and the building stands, which is
-        # physically correct and useless as a rescue scenario.
-        if any(
-            cols and cols <= destroyed
-            for cols in supports.values()
-        ):
-            return tuple(sorted(destroyed)), center
-
-    return best, blast
-
-
-def slab_supports(structure: Structure) -> dict[str, set[str]]:
-    """Map each slab to the set of columns bearing directly beneath it."""
-    out: dict[str, set[str]] = {}
-    for weld in structure.welds:
-        if weld.name.startswith("w_head_col") and weld.body_b is not None:
-            out.setdefault(weld.body_b, set()).add(weld.body_a)
-    return out
-
-
-def _sq_distance(
-    a: tuple[float, float, float], b: tuple[float, float, float]
-) -> float:
-    return sum((a[k] - b[k]) ** 2 for k in range(3))
-
-
-# --- the collapse itself -----------------------------------------------------
-
-
-def release_welds(
-    model: mujoco.MjModel, data: mujoco.MjData, names: tuple[str, ...]
-) -> int:
-    """Deactivate the named equality constraints.  Returns how many released.
-
-    This is the *only* mechanism by which anything is ever destroyed in
-    Cascade, in Phase 0 and in the live thermal-damage collapses of Phase 2
-    alike.  There is no scripted animation path to keep it consistent with.
-    """
-    released = 0
-    for name in names:
-        eq_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_EQUALITY, name)
-        if eq_id < 0:
-            raise KeyError(f"no equality constraint named {name!r} in the model")
-        data.eq_active[eq_id] = 0
-        released += 1
-    return released
+# --- instrumentation ---------------------------------------------------------
 
 
 def kinetic_energy(model: mujoco.MjModel, data: mujoco.MjData) -> float:
@@ -196,52 +80,14 @@ def kinetic_energy(model: mujoco.MjModel, data: mujoco.MjData) -> float:
     return 0.5 * float(data.qvel @ momentum)
 
 
-def weld_force_magnitudes(
-    model: mujoco.MjModel, data: mujoco.MjData
-) -> np.ndarray:
-    """Translational force carried by each equality constraint, in newtons.
-
-    MuJoCo lays a weld's rows out contiguously as three translational
-    components followed by three rotational ones.  We take the norm of the
-    translational triple only, so the result is a force in newtons that can be
-    compared against a member's yield threshold without mixing in torques.
-
-    Returns an array of length `model.neq`; inactive constraints read zero.
-    """
-    forces = np.zeros(model.neq, dtype=np.float64)
-    if data.nefc == 0:
-        return forces
-
-    is_equality = data.efc_type[: data.nefc] == mujoco.mjtConstraint.mjCNSTR_EQUALITY
-    rows = np.flatnonzero(is_equality)
-    if rows.size == 0:
-        return forces
-
-    eq_ids = data.efc_id[rows]
-    values = data.efc_force[rows]
-
-    # Walk each equality's contiguous row block and take its first three rows.
-    start = 0
-    while start < rows.size:
-        eq_id = eq_ids[start]
-        end = start
-        while end < rows.size and eq_ids[end] == eq_id:
-            end += 1
-        block = values[start : min(start + 3, end)]
-        forces[eq_id] = float(np.linalg.norm(block))
-        start = end
-    return forces
-
-
 def contact_loads(model: mujoco.MjModel, data: mujoco.MjData) -> np.ndarray:
     """Summed contact normal force per body, in newtons.
 
     The compressive load path in this structure runs through *contact*, not
     through the welds: a column rests on the ground and carries the slab
-    resting on it, while its welds mostly resist separation and only carry a
-    few percent of the weight.  Measuring weld force alone therefore reports
-    ~2% of the true axial load, which is the trap this function exists to
-    avoid.
+    resting on it, while its welds mostly resist separation and carry only a
+    few percent of the weight.  Measuring weld force alone reports ~2% of the
+    true axial load, which is the trap this function exists to avoid.
     """
     loads = np.zeros(model.nbody, dtype=np.float64)
     wrench = np.zeros(6, dtype=np.float64)
@@ -259,97 +105,62 @@ def member_axial_loads(
 ) -> dict[str, float]:
     """Estimated axial load carried by each member, in newtons.
 
-    A member in equilibrium receives roughly its axial load at each end (from
-    what it carries above and what supports it below), so the summed contact
-    normal force is about twice the axial load; the weld contribution is added
-    on top because a weld in tension carries load the contacts cannot.
+    A member in equilibrium receives roughly its axial load at each end, from
+    what it carries above and what supports it below, so the summed contact
+    normal force is about twice the axial load.
     """
     contact = contact_loads(model, data)
-    weld = weld_force_magnitudes(model, data)
-
-    weld_by_member: dict[str, float] = {}
-    for w in structure.welds:
-        eq_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_EQUALITY, w.name)
-        if eq_id >= 0 and data.eq_active[eq_id]:
-            weld_by_member[w.body_a] = max(
-                weld_by_member.get(w.body_a, 0.0), float(weld[eq_id])
-            )
-
     out: dict[str, float] = {}
     for member in structure.members:
         body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, member.name)
-        if body_id < 0:
-            continue
-        out[member.name] = 0.5 * float(contact[body_id]) + weld_by_member.get(
-            member.name, 0.0
-        )
+        if body_id >= 0:
+            out[member.name] = 0.5 * float(contact[body_id])
     return out
 
 
-def find_overloaded_members(
-    model: mujoco.MjModel,
-    data: mujoco.MjData,
-    structure: Structure,
-    safety_factor: float,
-    already_failed: set[str],
-) -> tuple[str, ...]:
-    """Members whose axial load exceeds their yield threshold.
+# --- applying damage ---------------------------------------------------------
 
-    This is what turns a handful of initiating failures into a progressive
-    collapse: when a column goes, its share of the load transfers to its
-    neighbours, and those that cannot carry it fail in turn.  The cascade is a
-    consequence of the load path, not a scripted sequence.
 
-    Only load-bearing members are checked.  Partitions are detailed with a
-    deflection head gap (see `structure.WALL_HEAD_GAP_M`), so they carry no
-    vertical load and have no structural role to lose -- they simply fall when
-    whatever they stand on goes, and the pile they make is the rubble the
-    robots must traverse.  Failing them explicitly would only delete that
-    rubble, and deleting rubble is what turns a partial collapse into a
-    runaway: the debris that should pile up and arrest the cascade vanishes
-    instead.
+def release_welds(
+    model: mujoco.MjModel, data: mujoco.MjData, names: tuple[str, ...]
+) -> int:
+    """Deactivate the named equality constraints.  Returns how many released.
+
+    This is the only mechanism by which structure is ever severed in Cascade,
+    in Phase 0 and in the live thermal-damage collapses of Phase 2 alike.
+    There is no scripted animation path to keep it consistent with.
     """
-    loads = member_axial_loads(model, data, structure)
-    return tuple(
-        m.name
-        for m in structure.members
-        if m.kind.is_load_bearing
-        and m.name not in already_failed
-        and loads.get(m.name, 0.0) > safety_factor * m.yield_threshold_n
-    )
+    released = 0
+    for name in names:
+        eq_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_EQUALITY, name)
+        if eq_id < 0:
+            raise KeyError(f"no equality constraint named {name!r} in the model")
+        data.eq_active[eq_id] = 0
+        released += 1
+    return released
 
 
 def pulverize(
-    model: mujoco.MjModel,
-    data: mujoco.MjData,
-    structure: Structure,
-    names: tuple[str, ...],
+    model: mujoco.MjModel, data: mujoco.MjData, names: tuple[str, ...]
 ) -> None:
     """Destroy the named members: they stop carrying load and stop colliding.
 
     A real column does not fail by politely detaching -- it crushes and
     buckles, ceasing to occupy the space that held the slab up.  A rigid box
-    cannot do that, so a failed member has its welds released, its collision
-    geometry disabled, and its body dropped far below the ground plane.  The
-    slab above then has genuinely nothing beneath it.
+    cannot do that, so a destroyed member has its collision geometry disabled
+    and its body dropped far below the ground plane.  The slab above then has
+    genuinely nothing beneath it.
 
-    This mutates `model` (geom contype/conaffinity), so callers that need a
+    Reserved for columns.  Applying it to everything was a mistake worth
+    naming: pulverizing failed slabs and partitions deletes the debris field,
+    and the debris field is exactly what *arrests* a real collapse -- rubble
+    piles up and the falling mass lands on something.  Delete it and every
+    collapse runs to completion.
+
+    This mutates `model` (geom contype/conaffinity), so callers needing a
     pristine model must pass a per-run instance.
     """
-    welds_by_member: dict[str, list[str]] = {}
-    for w in structure.welds:
-        welds_by_member.setdefault(w.body_a, []).append(w.name)
-        if w.body_b is not None:
-            welds_by_member.setdefault(w.body_b, []).append(w.name)
-
     for name in names:
-        for weld_name in welds_by_member.get(name, ()):
-            eq_id = mujoco.mj_name2id(
-                model, mujoco.mjtObj.mjOBJ_EQUALITY, weld_name
-            )
-            if eq_id >= 0:
-                data.eq_active[eq_id] = 0
-
         body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
         if body_id < 0:
             continue
@@ -364,7 +175,22 @@ def pulverize(
         if joint_id >= 0:
             adr = model.jnt_qposadr[joint_id]
             data.qpos[adr + 2] = _DEBRIS_DISPOSAL_Z
-            data.qvel[model.jnt_dofadr[joint_id] : model.jnt_dofadr[joint_id] + 6] = 0.0
+            dof = model.jnt_dofadr[joint_id]
+            data.qvel[dof : dof + 6] = 0.0
+
+
+def apply_damage(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    damage: BlastDamage,
+) -> None:
+    """Put the blast's damage into the model, before any physics runs."""
+    release_welds(model, data, damage.severed_welds)
+    pulverize(model, data, damage.destroyed_columns)
+    mujoco.mj_forward(model, data)
+
+
+# --- the collapse ------------------------------------------------------------
 
 
 def simulate_collapse(
@@ -374,20 +200,13 @@ def simulate_collapse(
     params: CollapseParams,
     xml_hash: str,
 ) -> CollapseResult:
-    """Release the initiating welds and let the physics produce the rubble."""
+    """Apply the blast and let the physics produce the rubble."""
     data = mujoco.MjData(model)
     mujoco.mj_forward(model, data)
 
-    initiating, blast = sample_initiating_members(structure, seed, params)
-    # The blast pulverizes the columns it struck: their welds go *and* they
-    # stop occupying the space that held the slab up.
-    failed: set[str] = set(initiating)
-    pulverize(model, data, structure, initiating)
-    mujoco.mj_forward(model, data)
+    damage = sample_damage(structure, seed, params)
+    apply_damage(model, data, damage)
 
-    cascade: list[tuple[int, str]] = []
-    # member -> consecutive checks it has been over its threshold
-    overload_streak: dict[str, int] = {}
     peak_ke = 0.0
     quiescent_for = 0
     settled_early = False
@@ -401,46 +220,6 @@ def simulate_collapse(
                 f"collapse diverged at step {step} for seed {seed}; "
                 "the solver configuration or member sizing needs attention"
             )
-
-        if (
-            step % params.overload_check_interval == 0
-            and len(failed) < params.max_cascade_failures
-        ):
-            budget = params.max_cascade_failures - len(failed)
-            over_now = set(
-                find_overloaded_members(
-                    model, data, structure, params.overload_safety_factor, failed
-                )
-            )
-            # Sustained overload only: a member that drops back under its
-            # threshold has ridden out an impulse and its streak resets.
-            for name in list(overload_streak):
-                if name not in over_now:
-                    del overload_streak[name]
-            for name in over_now:
-                overload_streak[name] = overload_streak.get(name, 0) + 1
-
-            overloaded = tuple(
-                sorted(
-                    n
-                    for n, streak in overload_streak.items()
-                    if streak >= params.overload_persistence_checks
-                )
-            )[:budget]
-            if overloaded:
-                # Everything that fails is pulverized, partitions included.
-                #
-                # Merely detaching a failed member does not work: a free wall
-                # still wedged between the floor and the slab above goes on
-                # carrying compression exactly as before, so the building
-                # stayed up with 46 members "failed".  A member that has
-                # yielded must stop bearing load, and for a rigid box the only
-                # way to express that is to remove it.
-                pulverize(model, data, structure, overloaded)
-                failed.update(overloaded)
-                for name in overloaded:
-                    overload_streak.pop(name, None)
-                cascade.extend((step, name) for name in overloaded)
 
         energy = kinetic_energy(model, data)
         peak_ke = max(peak_ke, energy)
@@ -457,8 +236,7 @@ def simulate_collapse(
 
     return CollapseResult(
         seed=seed,
-        initiating_members=initiating,
-        blast_center=blast,
+        damage=damage,
         qpos=data.qpos.copy(),
         steps_simulated=step,
         settled_early=settled_early,
@@ -466,8 +244,6 @@ def simulate_collapse(
         peak_kinetic_energy_j=peak_ke,
         final_kinetic_energy_j=kinetic_energy(model, data),
         model_hash=xml_hash,
-        failed_members=tuple(sorted(failed)),
-        cascade=tuple(cascade),
     )
 
 
@@ -485,18 +261,18 @@ def save_collapse(result: CollapseResult, cache_dir: Path | None = None) -> Path
     np.savez_compressed(
         path,
         qpos=result.qpos,
-        initiating_members=np.array(result.initiating_members, dtype=object),
-        blast_center=np.array(result.blast_center),
+        seed=result.seed,
+        model_hash=result.model_hash,
         steps_simulated=result.steps_simulated,
         settled_early=result.settled_early,
         wall_time_s=result.wall_time_s,
         peak_kinetic_energy_j=result.peak_kinetic_energy_j,
         final_kinetic_energy_j=result.final_kinetic_energy_j,
-        model_hash=result.model_hash,
-        seed=result.seed,
-        failed_members=np.array(result.failed_members, dtype=object),
-        cascade_steps=np.array([s for s, _ in result.cascade], dtype=np.int64),
-        cascade_members=np.array([n for _, n in result.cascade], dtype=object),
+        blast_center=np.array(result.damage.center),
+        blast_radius=result.damage.radius_m,
+        destroyed_columns=np.array(result.damage.destroyed_columns, dtype=object),
+        freed_members=np.array(result.damage.freed_members, dtype=object),
+        severed_welds=np.array(result.damage.severed_welds, dtype=object),
     )
     return path
 
@@ -513,10 +289,16 @@ def load_collapse(
     if not path.exists():
         return None
     with np.load(path, allow_pickle=True) as blob:
+        damage = BlastDamage(
+            center=tuple(blob["blast_center"].tolist()),
+            radius_m=float(blob["blast_radius"]),
+            destroyed_columns=tuple(blob["destroyed_columns"].tolist()),
+            freed_members=tuple(blob["freed_members"].tolist()),
+            severed_welds=tuple(blob["severed_welds"].tolist()),
+        )
         return CollapseResult(
             seed=int(blob["seed"]),
-            initiating_members=tuple(blob["initiating_members"].tolist()),
-            blast_center=tuple(blob["blast_center"].tolist()),
+            damage=damage,
             qpos=blob["qpos"],
             steps_simulated=int(blob["steps_simulated"]),
             settled_early=bool(blob["settled_early"]),
@@ -524,35 +306,81 @@ def load_collapse(
             peak_kinetic_energy_j=float(blob["peak_kinetic_energy_j"]),
             final_kinetic_energy_j=float(blob["final_kinetic_energy_j"]),
             model_hash=str(blob["model_hash"]),
-            failed_members=tuple(blob["failed_members"].tolist()),
-            cascade=tuple(
-                zip(
-                    blob["cascade_steps"].tolist(),
-                    blob["cascade_members"].tolist(),
-                    strict=True,
-                )
-            ),
         )
 
 
 def apply_settled_state(
-    model: mujoco.MjModel,
-    data: mujoco.MjData,
-    structure: Structure,
-    result: CollapseResult,
+    model: mujoco.MjModel, data: mujoco.MjData, result: CollapseResult
 ) -> None:
     """Place the world in its post-collapse configuration, at rest.
 
-    Restoring `qpos` alone is not enough: the members destroyed during the
-    collapse must be destroyed again, or a cached rubble field would be
-    silently propped up by columns that failed in the run that produced it.
+    Restoring `qpos` alone is not enough: the severed welds and the disabled
+    collision geometry are model/data state that positions do not carry, so a
+    cached rubble field would otherwise be propped up by columns that the
+    blast destroyed.
     """
     if result.qpos.shape[0] != model.nq:
         raise ValueError(
             f"cached qpos has {result.qpos.shape[0]} entries but the model "
             f"expects {model.nq}; the cache is stale"
         )
-    pulverize(model, data, structure, result.failed_members)
+    apply_damage(model, data, result.damage)
     data.qpos[:] = result.qpos
     data.qvel[:] = 0.0
     mujoco.mj_forward(model, data)
+
+
+def collapse_for_seed(
+    model: mujoco.MjModel,
+    structure: Structure,
+    seed: int,
+    params: CollapseParams,
+    xml_hash: str,
+    *,
+    use_cache: bool = True,
+    cache_dir: Path | None = None,
+) -> CollapseResult:
+    """Cached entry point: simulate the collapse once per (seed, model)."""
+    if use_cache:
+        cached = load_collapse(seed, xml_hash, cache_dir)
+        if cached is not None:
+            return cached
+    result = simulate_collapse(model, structure, seed, params, xml_hash)
+    if use_cache:
+        save_collapse(result, cache_dir)
+    return result
+
+
+def rubble_statistics(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    structure: Structure,
+    reference_z: np.ndarray,
+    damage: BlastDamage,
+) -> dict[str, float]:
+    """Summary of what the collapse actually did, for tests and reporting."""
+    destroyed = set(damage.destroyed_columns)
+    drops: list[float] = []
+    standing = 0
+    fallen = 0
+    for member in structure.members:
+        if member.name in destroyed:
+            continue
+        body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, member.name)
+        if body_id < 0:
+            continue
+        drop = float(reference_z[body_id] - data.xpos[body_id, 2])
+        drops.append(drop)
+        if drop > 1.0:
+            fallen += 1
+        else:
+            standing += 1
+
+    total = max(1, standing + fallen)
+    return {
+        "max_drop_m": max(drops) if drops else 0.0,
+        "mean_drop_m": float(np.mean(drops)) if drops else 0.0,
+        "fallen_fraction": fallen / total,
+        "standing_fraction": standing / total,
+        "n_destroyed": float(len(destroyed)),
+    }

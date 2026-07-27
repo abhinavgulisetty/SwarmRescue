@@ -54,10 +54,17 @@ PARTITION_YIELD_STRESS_PA: float = 1.5e6
 #:     factor 0.40 -> 882 kN : survives the blast (ratio 0.92, no cascade)
 #:     factor 0.35 -> 772 kN : stands intact (margin 1.34x), cascades on blast
 #:
+#: Settled at 0.45 (993 kN) once connection failure was modelled.  Members
+#: this strong let the *undamaged* part of the frame carry the redistributed
+#: load and stay up, while the section that lost its columns separates at its
+#: connections and falls -- which is what makes the collapse partial.  When
+#: members were the only thing that could fail, the same value meant nothing
+#: fell at all.
+#:
 #: 0.35 also sits sensibly against EN 1992-1-2, whose concrete strength
 #: reduction factor k_c(theta) is about 0.45 at 600 C before section loss to
 #: spalling is accounted for.
-FIRE_DAMAGED_STRENGTH_FACTOR: float = 0.35
+FIRE_DAMAGED_STRENGTH_FACTOR: float = 0.45
 
 #: Coordinates within this distance are the same structural node, metres.
 NODE_MERGE_TOL_M: float = 1e-6
