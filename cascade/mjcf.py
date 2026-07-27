@@ -85,6 +85,7 @@ def to_mjcf(
     model_name: str = "cascade",
     timestep_s: float = 0.002,
     extra_worldbody: list[ET.Element] | None = None,
+    extra_actuators: list[ET.Element] | None = None,
 ) -> str:
     """Serialise `structure` to an MJCF XML string."""
     params = structure.params
@@ -116,6 +117,11 @@ def to_mjcf(
 
     _add_equality(root, structure)
     _add_contact_exclusions(root, structure)
+
+    if extra_actuators:
+        actuator = ET.SubElement(root, "actuator")
+        for element in extra_actuators:
+            actuator.append(element)
 
     ET.indent(root, space="  ")
     return ET.tostring(root, encoding="unicode")
@@ -280,3 +286,119 @@ def _add_contact_exclusions(root: ET.Element, structure: Structure) -> None:
 def write_mjcf(path: str, xml: str) -> None:
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(xml)
+
+
+def settled_poses(model, data, structure: Structure) -> dict[str, tuple]:
+    """Read each surviving member's world pose out of a settled MjData."""
+    import mujoco
+    import numpy as np
+
+    out: dict[str, tuple] = {}
+    for member in structure.members:
+        body = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, member.name)
+        if body < 0:
+            continue
+        geom_start = model.body_geomadr[body]
+        if geom_start >= 0 and model.geom_contype[geom_start] == 0:
+            continue  # pulverized by the blast; it no longer exists
+        quat = np.zeros(4)
+        mujoco.mju_mat2Quat(quat, np.asarray(data.xmat[body], dtype=np.float64))
+        out[member.name] = (
+            tuple(float(v) for v in data.xpos[body]),
+            tuple(float(v) for v in quat),
+        )
+    return out
+
+
+def to_settled_mjcf(
+    structure: Structure,
+    plan: FloorPlan,
+    poses: dict[str, tuple],
+    *,
+    model_name: str = "cascade_settled",
+    timestep_s: float = 0.002,
+    extra_worldbody: list[ET.Element] | None = None,
+    extra_actuators: list[ET.Element] | None = None,
+) -> str:
+    """Emit the settled scene with the rubble baked in as static geometry.
+
+    After the collapse the debris is at rest, and simulating 500-odd free
+    bodies that are not going anywhere costs ~30 ms/step -- half an hour of
+    wall-clock to drive a robot across the building.  Freezing them at their
+    settled poses leaves the robot as the only dynamic body, and the same
+    traversal runs in about a minute.
+
+    The cost is explicit and worth stating rather than burying: rubble in this
+    model cannot shift, tip, or crush the robot.  The proposal wants that
+    (SS4.2 stage 4), so this is the mode for Phase 0's navigability demo, not
+    for evaluating survival under settling debris.  Members absent from
+    `poses` were pulverized by the blast and are simply not emitted.
+    """
+    params = structure.params
+    root = ET.Element("mujoco", model=model_name)
+
+    ET.SubElement(root, "compiler", angle="radian", autolimits="true")
+    ET.SubElement(
+        root,
+        "option",
+        timestep=f"{timestep_s}",
+        gravity=f"0 0 -{GRAVITY_M_S2}",
+        integrator="implicitfast",
+        cone=_FRICTION_CONE,
+        solver=_SOLVER,
+        iterations=_SOLVER_ITERATIONS,
+        ls_iterations=_SOLVER_LS_ITERATIONS,
+    )
+    ET.SubElement(root, "size", memory="64M")
+    _add_visual(root)
+    _add_defaults(root)
+    _add_assets(root, plan)
+
+    world = ET.SubElement(root, "worldbody")
+    width, depth = params.footprint_m
+    ET.SubElement(
+        world,
+        "light",
+        name="key",
+        pos=f"{width * 0.5} {depth * 0.5} {params.total_height_m + 8.0}",
+        dir="0 0 -1",
+        directional="true",
+        diffuse="0.7 0.7 0.7",
+    )
+    ET.SubElement(
+        world,
+        "geom",
+        name="ground",
+        type="plane",
+        size=f"{width} {depth} 0.5",
+        pos=f"{width * 0.5} {depth * 0.5} 0",
+        material="ground",
+        condim="3",
+        friction=_FRICTION,
+    )
+    for member in structure.members:
+        pose = poses.get(member.name)
+        if pose is None:
+            continue
+        (px, py, pz), quat = pose
+        hx, hy, hz = member.half_extents
+        ET.SubElement(
+            world,
+            "geom",
+            name=f"g_{member.name}",
+            type="box",
+            size=f"{hx} {hy} {hz}",
+            pos=f"{px} {py} {pz}",
+            quat=" ".join(f"{q}" for q in quat),
+            material=f"mat_{member.kind.value}",
+        )
+
+    for element in extra_worldbody or ():
+        world.append(element)
+    if extra_actuators:
+        actuator = ET.SubElement(root, "actuator")
+        for element in extra_actuators:
+            actuator.append(element)
+
+    ET.indent(root, space="  ")
+    return ET.tostring(root, encoding="unicode")

@@ -95,12 +95,12 @@ OPENING_CLEARANCE_M: float = 0.05
 #: bodies to a model that already carries 500, for geometry the robot's
 #: contact patch spans anyway.  Lidar sees a smooth ramp rather than treads,
 #: which is the honest cost of the simplification.
-STAIR_PITCH_DEG: float = 32.0
+STAIR_PITCH_DEG: float = 34.0
 STAIR_THICKNESS_M: float = 0.18
 #: Fraction of a stairwell's width taken by one flight of a switchback.
 STAIR_FLIGHT_WIDTH_FRACTION: float = 0.45
-#: Landing depth as a fraction of the stairwell's run direction.
-STAIR_LANDING_FRACTION: float = 0.30
+#: Minimum depth of each landing, metres.
+STAIR_MIN_LANDING_M: float = 0.55
 
 
 class MemberKind(str, Enum):
@@ -477,22 +477,34 @@ def _stairs(
         along_x = rect.width >= rect.height
         run_extent = rect.width if along_x else rect.height
         side_extent = rect.height if along_x else rect.width
-        if run_extent < run + 0.2 or side_extent < 0.8:
+        # Both landings need real depth: the flights must leave room for a
+        # floor-level landing at one end and a half-storey one at the other.
+        if run_extent < run + 2.0 * STAIR_MIN_LANDING_M or side_extent < 0.8:
             continue
 
         flight_width = STAIR_FLIGHT_WIDTH_FRACTION * side_extent
         cx, cy = rect.center
         # Two flights sit side by side across the stairwell's short axis.
         offsets = (-0.25 * side_extent, +0.25 * side_extent)
-        run_start = (rect.x0 if along_x else rect.y0) + 0.5 * (run_extent - run)
+        run_lo = rect.x0 if along_x else rect.y0
+        run_hi = rect.x1 if along_x else rect.y1
+        strip = 0.5 * (run_extent - run)
+        run_start = run_lo + strip
 
         for leg, offset in enumerate(offsets):
             rising = leg == 0
             mid_run = run_start + 0.5 * run
             z_mid = z_floor + (0.25 + 0.5 * leg) * params.storey_height_m
-            # A quarter turn about the axis across the run tilts the slab; the
-            # second leg climbs back the other way, hence the sign flip.
-            angle = pitch if rising else -pitch
+            # Tilt about the axis across the run; the second leg climbs back
+            # the other way, hence the sign flip.
+            #
+            # The sign is negative for the ascending leg because R_y(theta)
+            # maps the flight's long axis to (cos, 0, -sin): a *positive*
+            # angle makes it descend as the run coordinate increases.  Getting
+            # this backwards ran both flights the wrong way and stranded the
+            # landing at the far end from the flights it was supposed to join,
+            # which left every storey a separate connected component.
+            angle = -pitch if rising else pitch
             half = 0.5 * angle
             if along_x:
                 center = (mid_run, cy + offset, z_mid)
@@ -515,25 +527,36 @@ def _stairs(
                 )
             )
 
-        # Landing at mid-height, spanning the stairwell where the flights meet.
-        landing_depth = max(0.6, STAIR_LANDING_FRACTION * run_extent)
-        landing_run = run_start + run + 0.5 * landing_depth
-        if along_x:
-            lcenter = (landing_run, cy, z_floor + half_rise)
-            lsize = (landing_depth, side_extent, STAIR_THICKNESS_M)
-        else:
-            lcenter = (cx, landing_run, z_floor + half_rise)
-            lsize = (side_extent, landing_depth, STAIR_THICKNESS_M)
-        out.append(
-            Member(
-                name=f"stair_s{storey}_c{index}_landing",
-                kind=MemberKind.STAIR,
-                center=lcenter,
-                size=lsize,
-                storey=storey,
-                density=CONCRETE_DENSITY_KG_M3,
+        # Two landings, and the floor-level one is not optional.  The slab is
+        # punched out over the shaft, so without it a robot arriving at the
+        # top of one flight has no floor to cross to the foot of the next --
+        # the two are ~1.5 m apart across the stairwell -- and every storey
+        # becomes its own connected component.
+        for label, depth_lo, height in (
+            ("landing", run_start + run, z_floor + half_rise),
+            ("floor", run_lo, z_floor),
+        ):
+            mid = depth_lo + 0.5 * strip
+            # Top face flush with the level it serves.
+            cz = height - 0.5 * STAIR_THICKNESS_M
+            if label == "landing":
+                cz = height + 0.5 * STAIR_THICKNESS_M - STAIR_THICKNESS_M
+            if along_x:
+                lcenter = (mid, cy, cz)
+                lsize = (strip, side_extent, STAIR_THICKNESS_M)
+            else:
+                lcenter = (cx, mid, cz)
+                lsize = (side_extent, strip, STAIR_THICKNESS_M)
+            out.append(
+                Member(
+                    name=f"stair_s{storey}_c{index}_{label}",
+                    kind=MemberKind.STAIR,
+                    center=lcenter,
+                    size=lsize,
+                    storey=storey,
+                    density=CONCRETE_DENSITY_KG_M3,
+                )
             )
-        )
     return out
 
 

@@ -197,21 +197,48 @@ class CollapseParams:
 
 @dataclass(frozen=True, slots=True)
 class TraversabilityParams:
-    """Stage 4 -- what a small ground robot can actually drive over."""
+    """Stage 4 -- what the robot can actually drive over.
 
-    voxel_size_m: float = VOXEL_SIZE_M
-    #: Maximum climbable vertical discontinuity between adjacent voxels.
-    max_step_height_m: float = 0.12
+    These numbers describe a **tracked** micro-robot, not a wheeled one, and
+    that is a deliberate spec decision rather than a tuned constant.  The
+    building's stairs are pitched at 32 degrees; a wheeled platform limited to
+    ~22 degrees and a 0.12 m step cannot use them, so the traversability graph
+    would come out disconnected between storeys and the mission would be
+    impossible by construction.  Tracked rescue platforms in this size class
+    routinely climb 35 degrees and mount a standard stair riser, so that is
+    what the swarm is.
+    """
+
+    #: Horizontal raster resolution.  Finer than the 0.4 m the proposal quotes
+    #: for the robots' own belief octree, because this grid is *ground truth*
+    #: and has to resolve a doorway.  Conservative rasterization inflates every
+    #: obstacle by half a cell, so at 0.4 m a 0.9 m door shrinks to a single
+    #: free voxel and the planner cannot tell a doorway from a wall.
+    voxel_size_m: float = 0.25
+    #: Vertical raster resolution.  Much finer than the horizontal cell,
+    #: because a 0.4 m voxel cannot resolve whether a 0.18 m step is climbable.
+    voxel_height_m: float = 0.10
+    #: Maximum climbable vertical discontinuity between adjacent cells.
+    max_step_height_m: float = 0.18
     #: Maximum traversable slope.
-    max_slope_deg: float = 22.0
+    max_slope_deg: float = 35.0
     #: A gap narrower than this cannot be squeezed through.
     min_squeeze_width_m: float = 0.30
-    #: Vertical clearance a robot needs to occupy a voxel.
-    min_clearance_m: float = 0.25
+    #: Vertical clearance the robot needs to occupy a cell (its own height).
+    min_clearance_m: float = 0.28
 
     def __post_init__(self) -> None:
         _require(self.voxel_size_m > 0.0, "voxel_size_m must be positive")
+        _require(self.voxel_height_m > 0.0, "voxel_height_m must be positive")
         _require(0.0 < self.max_slope_deg < 90.0, "max_slope_deg must be in (0, 90)")
+        _require(self.min_clearance_m > 0.0, "min_clearance_m must be positive")
+
+    @property
+    def clearance_levels(self) -> int:
+        """Free vertical cells needed above a standable surface."""
+        import math
+
+        return max(1, int(math.ceil(self.min_clearance_m / self.voxel_height_m)))
 
 
 @dataclass(frozen=True, slots=True)
