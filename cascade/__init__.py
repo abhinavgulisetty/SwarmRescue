@@ -4,4 +4,4 @@ The rubble a robot must traverse is the settled output of a simulated
 structural failure, never hand-placed geometry.
 """
 
-__all__ = ["params", "rng", "geometry", "floorplan"]
+__all__ = ["floorplan", "geometry", "params", "rng"]

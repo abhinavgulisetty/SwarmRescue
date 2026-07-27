@@ -21,7 +21,7 @@ class Axis(str, Enum):
     Y = "y"
 
     @property
-    def other(self) -> "Axis":
+    def other(self) -> Axis:
         return Axis.Y if self is Axis.X else Axis.X
 
 
@@ -67,7 +67,7 @@ class Rect:
 
     # -- construction --
 
-    def split(self, axis: Axis, at: float) -> tuple["Rect", "Rect"]:
+    def split(self, axis: Axis, at: float) -> tuple[Rect, Rect]:
         """Split into two rectangles at absolute coordinate `at`."""
         if axis is Axis.X:
             if not (self.x0 < at < self.x1):
@@ -83,7 +83,7 @@ class Rect:
             Rect(self.x0, at, self.x1, self.y1),
         )
 
-    def inset(self, margin: float) -> "Rect":
+    def inset(self, margin: float) -> Rect:
         """Shrink by `margin` on every side, clamped to a degenerate centre."""
         cx, cy = self.center
         half_w = max(0.0, 0.5 * self.width - margin)
@@ -98,7 +98,7 @@ class Rect:
             and self.y0 - tol <= y <= self.y1 + tol
         )
 
-    def overlaps(self, other: "Rect", tol: float = EPS_M) -> bool:
+    def overlaps(self, other: Rect, tol: float = EPS_M) -> bool:
         """True if the interiors overlap by more than `tol` in both axes."""
         return (
             min(self.x1, other.x1) - max(self.x0, other.x0) > tol
