@@ -1,0 +1,62 @@
+# --- Claude Code local state ---
+.claude/settings.local.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+
+# --- Tooling caches ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+
+# --- Hydra / experiment outputs ---
+outputs/
+multirun/
+runs/
+logs/
+wandb/
+
+# --- Cascade generated artifacts (regenerable from seeds) ---
+# Settled-collapse keyframes and rasterized fields are caches keyed on seed;
+# the generator + seed is the source of truth, not the cache.
+cascade/cache/
+*.mjcf.cache
+*.keyframe.npz
+
+# --- Trained artifacts ---
+# Keep exported int8 tables (small, versioned deliberately); drop raw checkpoints.
+train/checkpoints/
+*.pt
+*.pth
+!train/export/*.int8.npz
+
+# --- Firmware builds ---
+firmware/**/build/
+firmware/**/sdkconfig.old
+*.elf
+*.bin
+*.map
+
+# --- Media / renders ---
+*.mp4
+*.gif
+renders/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
