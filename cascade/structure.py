@@ -368,26 +368,46 @@ def _walls(
     z_floor: float,
     params: BuildingParams,
 ) -> list[Member]:
-    """Partition walls on room boundaries, broken by doors and corridors.
+    """Walls on room boundaries and the envelope, broken by openings.
 
     Only the low-coordinate edges of each room are emitted, so a boundary
-    shared by two rooms yields one wall rather than two coincident ones.
+    shared by two rooms yields one wall rather than two coincident ones.  The
+    exception is the building envelope: a room's high edge is emitted when it
+    lies on the footprint boundary, because nothing else will ever emit it.
+
+    Omitting that exception left two of the four facades missing entirely --
+    the building was open on the +x and +y sides.  That is not cosmetic: the
+    stack effect of SS4.3(b) needs an enclosure to drive smoke up the
+    stairwells, and an open-sided building simply vents.  The RSSI model's
+    wall-attenuation raycasts had nothing to cross either.
     """
     # Partitions stop short of the soffit (deflection head joint), so they
     # carry no vertical load and cannot substitute for a destroyed column.
     h = params.storey_height_m - params.slab_thickness_m - WALL_HEAD_GAP_M
     t = params.wall_thickness_m
     doors = plan.storeys[storey].doors
-    openings = _opening_intervals(doors, corridors)
+    # Exits pierce the envelope on the ground floor only.
+    exits = plan.exits if storey == 0 else ()
+    openings = _opening_intervals(doors, exits)
 
+    footprint = plan.footprint
     out: list[Member] = []
     for room_index, room in enumerate(rooms):
         r = room.rect
-        for axis, at, lo, hi in (
+        edges = [
             (Axis.Y, r.y0, r.x0, r.x1),  # wall running along x, at y = y0
             (Axis.X, r.x0, r.y0, r.y1),  # wall running along y, at x = x0
-        ):
-            for seg_lo, seg_hi in _split_by_openings(axis, at, lo, hi, openings):
+        ]
+        # The envelope's far faces have no neighbouring room to emit them.
+        if abs(r.y1 - footprint.y1) <= EPS_M:
+            edges.append((Axis.Y, r.y1, r.x0, r.x1))
+        if abs(r.x1 - footprint.x1) <= EPS_M:
+            edges.append((Axis.X, r.x1, r.y0, r.y1))
+
+        for axis, at, lo, hi in edges:
+            for seg_lo, seg_hi in _split_by_openings(
+                axis, at, lo, hi, openings, corridors
+            ):
                 if seg_hi - seg_lo < params.door_width_m * 0.5:
                     continue
                 length = seg_hi - seg_lo
@@ -411,19 +431,24 @@ def _walls(
 
 
 def _opening_intervals(
-    doors: tuple, corridors: tuple[Rect, ...]
+    doors: tuple, exits: tuple = ()
 ) -> list[tuple[Axis, float, float, float]]:
-    """Gaps that must be cut out of walls: doorways and corridor crossings."""
+    """Doorway and exit gaps, as (normal axis, coordinate, lo, hi).
+
+    Corridors are handled separately in `_split_by_openings`: a corridor is a
+    2-D region, and flattening it into this per-axis form is what produced a
+    coordinate mix-up that punched holes in walls at meaningless positions.
+    """
     out: list[tuple[Axis, float, float, float]] = []
+    for door_out in exits:
+        half = 0.5 * door_out.width + OPENING_CLEARANCE_M
+        along = door_out.center[1] if door_out.axis is Axis.X else door_out.center[0]
+        out.append((door_out.axis, door_out.at, along - half, along + half))
     for door in doors:
         half = 0.5 * door.width + OPENING_CLEARANCE_M
         along = door.center[1] if door.wall.axis is Axis.X else door.center[0]
         # A door in a wall whose normal is X interrupts walls running along Y.
         out.append((door.wall.axis, door.wall.at, along - half, along + half))
-    for leg in corridors:
-        # A corridor leg punches through walls on both axes.
-        out.append((Axis.X, float("nan"), leg.y0, leg.y1))
-        out.append((Axis.Y, float("nan"), leg.x0, leg.x1))
     return out
 
 
@@ -433,20 +458,26 @@ def _split_by_openings(
     lo: float,
     hi: float,
     openings: list[tuple[Axis, float, float, float]],
+    corridors: tuple[Rect, ...] = (),
 ) -> list[tuple[float, float]]:
-    """Subtract every applicable opening interval from the span [lo, hi]."""
-    # A wall running along X sits at constant y and is interrupted by openings
-    # whose normal is Y -- and by corridor legs, which have no fixed normal.
+    """Subtract every applicable opening from the wall span [lo, hi].
+
+    `axis` is the wall's *normal*: `Axis.Y` means the wall runs along x at the
+    constant coordinate `at`, and `[lo, hi]` is its extent in x.
+    """
     cuts: list[tuple[float, float]] = []
     for op_axis, op_at, op_lo, op_hi in openings:
-        is_corridor = op_at != op_at  # NaN marks a corridor leg
-        if is_corridor:
-            if op_axis is axis:
-                continue
-            cuts.append((op_lo, op_hi))
-            continue
         if op_axis is axis and abs(op_at - at) <= EPS_M:
             cuts.append((op_lo, op_hi))
+
+    # A corridor cuts this wall only where it actually crosses it, and the gap
+    # it leaves is its extent along the wall -- not across it.
+    for leg in corridors:
+        if axis is Axis.Y:
+            if leg.y0 - EPS_M <= at <= leg.y1 + EPS_M:
+                cuts.append((leg.x0, leg.x1))
+        elif leg.x0 - EPS_M <= at <= leg.x1 + EPS_M:
+            cuts.append((leg.y0, leg.y1))
 
     segments = [(lo, hi)]
     for cut_lo, cut_hi in cuts:

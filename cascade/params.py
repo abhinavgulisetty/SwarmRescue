@@ -87,6 +87,11 @@ class BuildingParams:
     split_jitter: float = 0.16
 
     # -- Openings --
+    #: Ground-floor exits through the envelope.  These are the egress terminal
+    #: states of the routing problem, so a building without them is not a
+    #: scenario -- there is nowhere to lead a survivor to.
+    n_exits: int = 2
+    exit_width_m: float = 1.8
     door_width_m: float = 0.9
     #: P(door) on a shared wall decays as exp(-len / this), so long shared
     #: walls between big rooms are not riddled with doorways.
@@ -142,6 +147,8 @@ class BuildingParams:
             "a bay must be splittable into at least two rooms",
         )
         _require(self.bay_depth >= 1 and self.room_depth >= 1, "depths must be >= 1")
+        _require(self.n_exits >= 1, "a building needs at least one exit")
+        _require(self.exit_width_m > 0.0, "exit_width_m must be positive")
 
     @property
     def total_height_m(self) -> float:

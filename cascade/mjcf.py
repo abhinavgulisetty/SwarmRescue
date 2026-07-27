@@ -105,6 +105,7 @@ def to_mjcf(
     # size its arena from the model rather than guessing a byte budget.
     ET.SubElement(root, "size", memory="256M")
 
+    _add_visual(root)
     _add_defaults(root)
     _add_assets(root, plan)
     world = _add_worldbody(root, structure, params, plan)
@@ -117,6 +118,27 @@ def to_mjcf(
 
     ET.indent(root, space="  ")
     return ET.tostring(root, encoding="unicode")
+
+
+#: Offscreen framebuffer size.  MuJoCo defaults to 640x480 and *errors* rather
+#: than downscaling when asked for a larger frame, so this has to be declared
+#: in the model rather than chosen at render time.
+_OFFSCREEN_WIDTH: int = 1920
+_OFFSCREEN_HEIGHT: int = 1200
+
+
+def _add_visual(root: ET.Element) -> None:
+    visual = ET.SubElement(root, "visual")
+    ET.SubElement(
+        visual,
+        "global",
+        offwidth=str(_OFFSCREEN_WIDTH),
+        offheight=str(_OFFSCREEN_HEIGHT),
+    )
+    # A little atmospheric haze reads as dust and gives depth cues in a
+    # monochrome rubble field, where everything is the same grey.
+    ET.SubElement(visual, "map", fogstart="25", fogend="90", haze="0.25")
+    ET.SubElement(visual, "quality", shadowsize="4096", offsamples="8")
 
 
 def _add_defaults(root: ET.Element) -> None:

@@ -25,7 +25,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .geometry import Axis, Rect, SharedWall, manhattan, shared_wall
+from .geometry import EPS_M, Axis, Rect, SharedWall, manhattan, shared_wall
 from .params import BuildingParams, RoomKind
 from .rng import stage_rng, substream
 
@@ -88,11 +88,29 @@ class Storey:
 
 
 @dataclass(frozen=True, slots=True)
+class Exit:
+    """A ground-floor opening through the building envelope.
+
+    These are the egress terminal states of the routing problem: the cells
+    where the desirability field is pinned to 1.  A building without them has
+    nowhere to lead a survivor.
+    """
+
+    #: Normal axis of the envelope wall this pierces.
+    axis: Axis
+    #: Constant coordinate of that wall.
+    at: float
+    center: tuple[float, float]
+    width: float
+
+
+@dataclass(frozen=True, slots=True)
 class FloorPlan:
     params: BuildingParams
     bays: tuple[Rect, ...]
     storeys: tuple[Storey, ...]
     connectors: tuple[ConnectorPlan, ...]
+    exits: tuple[Exit, ...] = ()
 
     @property
     def footprint(self) -> Rect:
@@ -571,6 +589,64 @@ def build_floorplan(seed: int, params: BuildingParams) -> FloorPlan:
         build_storey(k, bays, connectors, corridors, params, substream(rng, k))
         for k in range(params.n_storeys)
     )
+    exits = place_exits(storeys[0], footprint, params, rng)
     return FloorPlan(
-        params=params, bays=bays, storeys=storeys, connectors=connectors
+        params=params,
+        bays=bays,
+        storeys=storeys,
+        connectors=connectors,
+        exits=exits,
     )
+
+
+def place_exits(
+    ground: Storey,
+    footprint: Rect,
+    params: BuildingParams,
+    rng: np.random.Generator,
+) -> tuple[Exit, ...]:
+    """Punch exits through the ground-floor envelope.
+
+    Candidates are ground-floor room edges that lie on the building boundary
+    and are long enough to hold an opening.  Exits are spread across different
+    facades where possible: two doors side by side on one wall give the swarm
+    a single egress direction and make the routing problem degenerate.
+    """
+    candidates: list[tuple[Axis, float, float, float]] = []
+    for room in ground.rooms:
+        if room.is_connector:
+            continue
+        r = room.rect
+        for axis, at, lo, hi, boundary in (
+            (Axis.Y, r.y0, r.x0, r.x1, footprint.y0),
+            (Axis.Y, r.y1, r.x0, r.x1, footprint.y1),
+            (Axis.X, r.x0, r.y0, r.y1, footprint.x0),
+            (Axis.X, r.x1, r.y0, r.y1, footprint.x1),
+        ):
+            on_envelope = abs(at - boundary) <= EPS_M
+            if on_envelope and (hi - lo) >= params.exit_width_m + 2 * EPS_M:
+                candidates.append((axis, at, lo, hi))
+
+    if not candidates:
+        return ()
+
+    # Group by facade so exits can be spread across the building.
+    by_facade: dict[tuple[str, float], list[tuple[Axis, float, float, float]]] = {}
+    for axis, at, lo, hi in candidates:
+        by_facade.setdefault((axis.value, at), []).append((axis, at, lo, hi))
+
+    facades = sorted(by_facade)
+    order = rng.permutation(len(facades))
+    exits: list[Exit] = []
+    for index in order:
+        if len(exits) >= params.n_exits:
+            break
+        segments = by_facade[facades[int(index)]]
+        axis, at, lo, hi = segments[int(rng.integers(len(segments)))]
+        half = 0.5 * params.exit_width_m
+        along = float(rng.uniform(lo + half, hi - half))
+        center = (at, along) if axis is Axis.X else (along, at)
+        exits.append(
+            Exit(axis=axis, at=at, center=center, width=params.exit_width_m)
+        )
+    return tuple(exits)
