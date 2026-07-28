@@ -96,7 +96,21 @@ OPENING_CLEARANCE_M: float = 0.05
 #: contact patch spans anyway.  Lidar sees a smooth ramp rather than treads,
 #: which is the honest cost of the simplification.
 STAIR_PITCH_DEG: float = 34.0
-STAIR_THICKNESS_M: float = 0.18
+#: Waist thickness of a stair flight, metres.
+STAIR_THICKNESS_M: float = 0.16
+#: Thickness and horizontal run of the threshold ramp at the foot of a
+#: ground-storey flight, metres.
+#:
+#: A flight is a tilted slab, so positioning its top face at floor level puts
+#: its body below that floor.  Above ground that is fine -- the slab is
+#: punched out over the stairwell and the flight hangs in the void.  At storey
+#: 0 the floor is solid ground, so the collapse pushes the flight back out and
+#: it settles presenting a `thickness * cos(pitch)` lip at its foot: a ~0.13 m
+#: step that a small ground robot cannot mount, sitting across the only route
+#: to every upper storey.  A real staircase has a bottom step here, so this
+#: models one -- shallow and thin, leaving a residual lip of about 0.05 m.
+STAIR_THRESHOLD_THICKNESS_M: float = 0.05
+STAIR_THRESHOLD_RUN_M: float = 0.80
 #: Fraction of a stairwell's width taken by one flight of a switchback.
 STAIR_FLIGHT_WIDTH_FRACTION: float = 0.45
 #: Minimum depth of each landing, metres.
@@ -494,7 +508,16 @@ def _stairs(
         for leg, offset in enumerate(offsets):
             rising = leg == 0
             mid_run = run_start + 0.5 * run
-            z_mid = z_floor + (0.25 + 0.5 * leg) * params.storey_height_m
+            # Place the flight by its *top face* -- the surface actually driven
+            # on -- not by its centroid.  Putting the centroid at mid-rise
+            # leaves the walking surface half a thickness high at both ends,
+            # which lands as a ~0.15 m lip wherever a flight meets a landing:
+            # a step no small ground robot can mount, at every junction of
+            # every staircase on every storey.  The voxel graph never noticed,
+            # because a 0.15 m rise is inside its step limit, so it went on
+            # certifying routes that were physically blocked.
+            surface_mid = z_floor + (0.25 + 0.5 * leg) * params.storey_height_m
+            z_mid = surface_mid - 0.5 * STAIR_THICKNESS_M * math.cos(pitch)
             # Tilt about the axis across the run; the second leg climbs back
             # the other way, hence the sign flip.
             #
@@ -527,20 +550,48 @@ def _stairs(
                 )
             )
 
+            # Only the ground-storey flight needs a bottom step: it is the one
+            # whose underside meets solid ground rather than the void over a
+            # punched-out slab.
+            if rising and z_floor <= 0.0:
+                lateral = cy + offset if along_x else cx + offset
+                run_low = mid_run - 0.5 * flight_length * math.cos(pitch) - (
+                    0.5 * STAIR_THICKNESS_M * math.sin(pitch)
+                )
+                out.append(
+                    _stair_threshold(
+                        name=f"stair_s{storey}_c{index}_f{leg}_threshold",
+                        storey=storey,
+                        along_x=along_x,
+                        run_low=run_low,
+                        lateral=lateral,
+                        width=flight_width,
+                        pitch=pitch,
+                    )
+                )
+
         # Two landings, and the floor-level one is not optional.  The slab is
         # punched out over the shaft, so without it a robot arriving at the
         # top of one flight has no floor to cross to the foot of the next --
         # the two are ~1.5 m apart across the stairwell -- and every storey
         # becomes its own connected component.
-        for label, depth_lo, height in (
-            ("landing", run_start + run, z_floor + half_rise),
-            ("floor", run_lo, z_floor),
-        ):
+        landings = [("landing", run_start + run, z_floor + half_rise)]
+        if storey > 0:
+            landings.append(("floor", run_lo, z_floor))
+        # ...but only above the ground.  At storey 0 the ground plane already
+        # provides a surface flush with the floor, and a landing there is
+        # worse than redundant.  Authored correctly -- top face at z = 0 -- it
+        # sits entirely *below* the ground plane, so the collapse ejects it
+        # upward and it settles as a 0.18 m lip across the foot of the stairs.
+        # That is an unclimbable step for a platform with 0.075 m wheels, and
+        # it silently severed every upper storey from the entrance while the
+        # voxel graph, which only checks that a rise is under the step limit,
+        # went on reporting all four storeys reachable.
+
+        for label, depth_lo, height in landings:
             mid = depth_lo + 0.5 * strip
             # Top face flush with the level it serves.
             cz = height - 0.5 * STAIR_THICKNESS_M
-            if label == "landing":
-                cz = height + 0.5 * STAIR_THICKNESS_M - STAIR_THICKNESS_M
             if along_x:
                 lcenter = (mid, cy, cz)
                 lsize = (strip, side_extent, STAIR_THICKNESS_M)
@@ -558,6 +609,58 @@ def _stairs(
                 )
             )
     return out
+
+
+def _stair_threshold(
+    *,
+    name: str,
+    storey: int,
+    along_x: bool,
+    run_low: float,
+    lateral: float,
+    width: float,
+    pitch: float,
+) -> Member:
+    """A shallow ramp from floor level up to the foot of a stair flight.
+
+    The flight settles on the ground presenting a lip of
+    `STAIR_THICKNESS_M * cos(pitch)`.  This climbs most of that over
+    `STAIR_THRESHOLD_RUN_M`, leaving only its own thickness as a residual
+    step, which is a fraction of a wheel radius rather than twice one.
+    """
+    import math
+
+    lip = STAIR_THICKNESS_M * math.cos(pitch)
+    residual = STAIR_THRESHOLD_THICKNESS_M * math.cos(pitch)
+    rise = max(lip - residual, 0.0)
+    angle = math.atan2(rise, STAIR_THRESHOLD_RUN_M)
+    length = math.hypot(STAIR_THRESHOLD_RUN_M, rise)
+
+    # Sit the ramp *on* the ground: its lowest corner at z = 0, so the collapse
+    # has nothing to push out and the authored pose is the settled pose.
+    cz = 0.5 * length * math.sin(angle) + 0.5 * STAIR_THRESHOLD_THICKNESS_M * math.cos(
+        angle
+    )
+    mid = run_low - 0.5 * STAIR_THRESHOLD_RUN_M
+    half = -0.5 * angle
+    if along_x:
+        center = (mid, lateral, cz)
+        size = (length, width, STAIR_THRESHOLD_THICKNESS_M)
+        quat = (math.cos(half), 0.0, math.sin(half), 0.0)
+    else:
+        center = (lateral, mid, cz)
+        size = (width, length, STAIR_THRESHOLD_THICKNESS_M)
+        quat = (math.cos(half), -math.sin(half), 0.0, 0.0)
+
+    return Member(
+        name=name,
+        kind=MemberKind.STAIR,
+        center=center,
+        size=size,
+        storey=storey,
+        density=CONCRETE_DENSITY_KG_M3,
+        quat=quat,
+    )
 
 
 def _walls(

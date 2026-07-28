@@ -124,10 +124,18 @@ def test_edges_respect_the_rise_limit(world) -> None:
 
 
 def test_every_node_stands_on_something(world) -> None:
+    """Support comes from `occupied`; clearance comes from `blocked`.
+
+    The two grids answer different questions and the node definition uses one
+    of each, so the invariant is asymmetric.  Asserting `not occupied[k + 1]`
+    would be wrong: `occupied` pads every box by half a voxel vertically to
+    catch thin slabs, and that padding routinely bleeds one level above a
+    floor the robot stands on perfectly well.
+    """
     _, _, grid, graph = world
     for i, j, k in graph.cells[:: max(1, graph.n_nodes // 200)]:
         assert grid.occupied[i, j, k], "standable cell has nothing beneath it"
-        assert not grid.occupied[i, j, k + 1], "standable cell is buried"
+        assert not grid.blocked[i, j, k + 1], "no room for the chassis"
 
 
 @pytest.mark.parametrize("seed", SEEDS)
@@ -184,6 +192,56 @@ def test_shortest_path_is_connected(world) -> None:
     edges |= {(b, a) for a, b in edges}
     for a, b in zip(route[:-1], route[1:], strict=True):
         assert (a, b) in edges, "route uses a move that is not an edge"
+
+
+# --- configuration space -----------------------------------------------------
+
+
+def _slot_scene(gap_m: float) -> mujoco.MjModel:
+    """Two parallel walls `gap_m` apart, centred on x = 2, running along y."""
+    thickness = 0.15
+    offset = 0.5 * gap_m + 0.5 * thickness
+    walls = "".join(
+        f'<body name="w{i}" pos="{2.0 + s * offset} 2.0 1.0">'
+        f'<geom type="box" size="{0.5 * thickness} 1.5 1.0"/></body>'
+        for i, s in enumerate((-1.0, 1.0))
+    )
+    return mujoco.MjModel.from_xml_string(
+        f'<mujoco><worldbody><geom type="plane" size="10 10 0.1"/>{walls}'
+        "</worldbody></mujoco>"
+    )
+
+
+def _slot_is_traversable(gap_m: float) -> bool:
+    params = CascadeParams()
+    model = _slot_scene(gap_m)
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+    grid = rasterize(model, data, (4.0, 4.0), 2.5, params.traversability)
+    graph = build_graph(grid, params.traversability)
+    positions = graph.world_positions()
+    # Standable cells on the ground, inside the slot and clear of its mouths.
+    inside = (
+        (np.abs(positions[:, 0] - 2.0) < 0.5 * gap_m)
+        & (np.abs(positions[:, 1] - 2.0) < 1.0)
+        & (positions[:, 2] < 0.5)
+    )
+    return bool(inside.any())
+
+
+def test_a_slot_narrower_than_the_robot_is_not_traversable() -> None:
+    """The point-robot planner's defining failure, as a standing test.
+
+    A 0.30 m slot is open floor to a point and impassable to a 0.42 m chassis.
+    The planner used to route through gaps like this and the robot wedged
+    itself on geometry the graph had certified as clear.
+    """
+    assert not _slot_is_traversable(0.30)
+
+
+def test_a_slot_wider_than_the_robot_is_traversable() -> None:
+    """The inflation must not be so eager that it seals ordinary doorways."""
+    assert _slot_is_traversable(1.20)
 
 
 def test_unreachable_goal_returns_empty_path(world) -> None:

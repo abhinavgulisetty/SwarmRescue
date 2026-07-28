@@ -28,14 +28,31 @@ from .params import TraversabilityParams
 #: the structure is still inside the grid.
 GRID_MARGIN_M: float = 1.5
 
+#: How far a box's local axis may tilt out of horizontal and still be grown by
+#: the configuration-space pad, as |world z component|.  About 8.6 degrees.
+_HORIZONTAL_TOL: float = 0.15
+
+#: Geom name prefix for members that are running surfaces rather than
+#: obstacles, and so are never grown into configuration-space obstacles.
+_WALKABLE_PREFIX: str = "g_stair_"
+
 
 @dataclass(frozen=True, slots=True)
 class VoxelGrid:
-    """Occupancy over an axis-aligned lattice."""
+    """Occupancy over an axis-aligned lattice.
+
+    Two occupancies, not one.  `occupied` is where matter is, and answers
+    "what can I stand on".  `blocked` is the same geometry grown by the
+    robot's turning radius, and answers "can the robot's *centre* be here" --
+    the configuration-space obstacle.  Keeping both is what lets a cell be
+    simultaneously solid ground to stand on and, one level up, too close to a
+    wall for the chassis to occupy.
+    """
 
     origin: tuple[float, float, float]
     cell: tuple[float, float, float]
     occupied: np.ndarray
+    blocked: np.ndarray
 
     @property
     def shape(self) -> tuple[int, int, int]:
@@ -130,6 +147,30 @@ def rasterize(
     occupied = np.zeros(shape, dtype=bool)
     # Level 0 spans [-cell_z, 0], so its top face is exactly the ground plane.
     occupied[:, :, 0] = True
+    blocked = np.zeros(shape, dtype=bool)
+    blocked[:, :, 0] = True
+
+    # The two grids round in *opposite* directions, and they have to.
+    #
+    # `blocked` answers "would the chassis hit something here", so it must
+    # never miss an obstacle: every box is grown by the robot's radius, which
+    # is larger than half a voxel and so also guarantees a 0.15 m partition
+    # cannot slip between sample points.  It is not grown vertically, since a
+    # vertical pad would lift every floor slab into the level above it.
+    #
+    # `occupied` answers "is there something solid under the tracks", so it
+    # must never invent material *laterally*: half a voxel of phantom floor
+    # past the edge of a 34 degree stair flight reads as a standable surface
+    # 0.2 m up in mid-air, and the planner routed robots onto it.  They drove
+    # at a floor that was not there, dropped, and wedged against the real edge
+    # of the flight.
+    #
+    # Vertically it is padded by half a level, which invents nothing: it is
+    # the rounding the height lattice already imposes, and without it a stair
+    # flight thin enough to fall between two level centres vanishes from the
+    # support grid entirely and disconnects the storeys above it.
+    support_pad = np.array([0.0, 0.0, 0.5 * cell[2]])
+    robot_pad = np.array([params.robot_radius_m, params.robot_radius_m, 0.0])
 
     for geom in range(model.ngeom):
         if model.geom_type[geom] != mujoco.mjtGeom.mjGEOM_BOX:
@@ -141,9 +182,23 @@ def rasterize(
         half = np.asarray(model.geom_size[geom][:3], dtype=np.float64)
         center = np.asarray(data.geom_xpos[geom], dtype=np.float64)
         rot = np.asarray(data.geom_xmat[geom], dtype=np.float64).reshape(3, 3)
-        _mark_box(occupied, origin, cell, center, rot, half)
+        _mark_box(occupied, origin, cell, center, rot, half, support_pad)
 
-    return VoxelGrid(origin=origin, cell=cell, occupied=occupied)
+        # Stairs still occupy space -- you cannot stand in the 0.2 m gap under
+        # a flight -- but they are not grown, because a member the robot drives
+        # *on* is not an obstacle to keep clear of.  Growing them laterally
+        # hangs a phantom overhang past the edge of every landing, and a
+        # landing overhanging the flight below it removes exactly the headroom
+        # a robot needs to step off the stairs onto the floor.  That severed
+        # the storeys above the first while the surfaces themselves were all
+        # present and correctly placed.
+        name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, geom) or ""
+        pad = support_pad if name.startswith(_WALKABLE_PREFIX) else robot_pad
+        _mark_box(
+            blocked, origin, cell, center, rot, half, pad, horizontal_only=True
+        )
+
+    return VoxelGrid(origin=origin, cell=cell, occupied=occupied, blocked=blocked)
 
 
 def _mark_box(
@@ -153,8 +208,11 @@ def _mark_box(
     center: np.ndarray,
     rot: np.ndarray,
     half: np.ndarray,
+    pad: np.ndarray,
+    *,
+    horizontal_only: bool = False,
 ) -> None:
-    """Set every voxel the oriented box overlaps.
+    """Set every voxel whose centre lies within `pad` of the oriented box.
 
     Testing whether the voxel *centre* lies inside the box is not enough: a
     0.15 m partition inside a 0.4 m voxel only marks it occupied when it
@@ -162,14 +220,43 @@ def _mark_box(
     to the raster and the planner routed straight through them.  The robot
     then drove into a wall the graph believed was open floor and stalled.
 
-    Instead the box is inflated by the voxel's extent projected onto each of
-    its own axes, which is the standard conservative AABB-vs-OBB overlap test.
-    It never misses an overlap; it can over-report slightly at corners, and
+    Instead the box is inflated by `pad` projected onto each of its own axes,
+    which is the standard conservative AABB-vs-OBB overlap test.  It never
+    misses an overlap; it can over-report slightly at corners, and
     over-reporting is the safe direction for a traversability map.
+
+    Passing the robot's radius as `pad` turns the same routine into a
+    configuration-space obstacle: the inflated box is exactly the set of
+    centre positions at which the robot would be in collision.
+
+    `horizontal_only` pads a local axis only if that axis is genuinely
+    horizontal.  Growing a box along an axis that tilts out of the horizontal
+    plane moves its surfaces vertically, and for a member a robot drives *on*
+    that invents obstacles out of thin air:
+
+    * Along the thickness of a 34 degree stair flight, r of growth lifts its
+      top face by r*sin(34)*cos(34) -- a whole voxel level -- so the flight
+      marks the space directly above itself as occupied and nothing can stand
+      on a staircase.
+    * Along the *run* of the same flight, r of growth extends the ramp past
+      its own top end and up into the air, leaving a phantom slab hovering
+      over the landing at the head of the stairs.  That one is worse, because
+      it lands precisely where a robot must be to step off the stairs onto the
+      floor, and it severed every storey above the first.
+
+    For an upright wall or column the vertical axis is the height, for a slab
+    or a flight it is the thickness, and for a ramp the run tilts too.  In
+    every case the axes that survive are the ones along which growth means
+    "keep clear laterally", which is the only thing configuration space is
+    being asked for here.
     """
-    voxel_half = np.array([0.5 * c for c in cell])
-    inflated = half + np.abs(rot).T @ voxel_half
-    extent = np.abs(rot) @ half
+    # The world-frame pad has to be resolved onto the box's own axes before it
+    # can be dropped selectively -- the axes to spare are *local* ones.
+    local_pad = np.abs(rot).T @ pad
+    if horizontal_only:
+        local_pad = np.where(np.abs(rot[2, :]) > _HORIZONTAL_TOL, 0.0, local_pad)
+    inflated = half + local_pad
+    extent = np.abs(rot) @ half + pad
     lo = center - extent
     hi = center + extent
 
@@ -252,11 +339,17 @@ def _standable_cells(
     the graph is built in 3-D rather than from a height map.
     """
     occupied = grid.occupied
+    # Support is a question about matter -- is there something under the
+    # tracks -- so it reads the true occupancy.  Everything above the surface
+    # is a question about whether the *chassis* fits, so it reads the
+    # configuration-space grid.  Using `occupied` for both is what let the
+    # planner thread a 0.42 m-wide robot through a 0.25 m slot.
+    blocked = grid.blocked
     nx, ny, nz = grid.shape
     need = params.clearance_levels
 
     solid = occupied[:, :, :-1]
-    free_above = ~occupied[:, :, 1:]
+    free_above = ~blocked[:, :, 1:]
     candidate = solid & free_above
 
     # Require `need` consecutive free levels above the surface.
@@ -265,7 +358,7 @@ def _standable_cells(
         shifted = np.zeros_like(candidate)
         upper = nz - 1 - offset
         if upper > 0:
-            shifted[:, :, :upper] = ~occupied[:, :, 1 + offset : nz]
+            shifted[:, :, :upper] = ~blocked[:, :, 1 + offset : nz]
         headroom &= shifted
     candidate &= headroom
 
@@ -346,10 +439,16 @@ def nearest_node(
     return int(np.argmin(distances))
 
 
-def shortest_path(
-    graph: TraversabilityGraph, start: int, goal: int
-) -> list[int]:
-    """Dijkstra over the traversability graph.  Empty when unreachable."""
+def dijkstra_from(
+    graph: TraversabilityGraph, start: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Cost and predecessor to every node, from one source.
+
+    Separated from `shortest_path` because a swarm asks the same question
+    from the same entry point once per robot.  Re-running a full Dijkstra --
+    and rebuilding the adjacency list, which dominates it -- for each of them
+    is the difference between planning a swarm in a second and in a minute.
+    """
     adjacency = graph.adjacency()
     n = graph.n_nodes
     dist = np.full(n, np.inf)
@@ -363,21 +462,33 @@ def shortest_path(
         if seen[node]:
             continue
         seen[node] = True
-        if node == goal:
-            break
         for neighbour, cost in adjacency[node]:
             nd = d + cost
             if nd < dist[neighbour]:
                 dist[neighbour] = nd
                 prev[neighbour] = node
                 heapq.heappush(queue, (nd, neighbour))
+    return dist, prev
 
+
+def path_from(
+    dist: np.ndarray, prev: np.ndarray, start: int, goal: int
+) -> list[int]:
+    """Unwind a `dijkstra_from` result into a route.  Empty when unreachable."""
     if not np.isfinite(dist[goal]):
         return []
     path = [goal]
     while path[-1] != start:
         path.append(int(prev[path[-1]]))
     return path[::-1]
+
+
+def shortest_path(
+    graph: TraversabilityGraph, start: int, goal: int
+) -> list[int]:
+    """Dijkstra over the traversability graph.  Empty when unreachable."""
+    dist, prev = dijkstra_from(graph, start)
+    return path_from(dist, prev, start, goal)
 
 
 def storeys_reached(

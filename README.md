@@ -37,7 +37,55 @@ somebody's route.
 - Kernels are cross-validated against **real firmware** under QEMU-xtensa (ESP32) and Renode
   (Cortex-M4); 1–2 robots run that firmware live during the final demo.
 
+## Running it
+
+Everything below runs from the repo root against the project venv (Python 3.12).
+
+**Look at a generated building.** Writes four views plus a contact sheet to `outputs/views/`:
+
+```bash
+.venv/bin/python -m cascade.view --seed 7                     # intact
+.venv/bin/python -m cascade.view --seed 7 --collapsed         # after the blast
+.venv/bin/python -m cascade.view --seed 7 --collapsed --cutaway
+.venv/bin/python -m cascade.view --seed 7 --interactive       # live MuJoCo window
+```
+
+**Run the swarm traversal demo.** Writes an annotated `.mp4` to `outputs/demo/`:
+
+```bash
+.venv/bin/python -m cascade.demo --seed 7 --robots 4
+.venv/bin/python -m cascade.demo --seed 7 --robots 4 --no-render   # numbers only
+```
+
+The video has two panes: a *dollhouse* shot that cuts the building off above whichever storey the
+swarm is on, and a *plan* shot with the slabs removed so every robot is visible at once regardless
+of storey. Robots carry coloured beacons because a 0.34 m chassis in a 24 × 18 × 12 m ruin is
+otherwise a couple of pixels.
+
+The first run for a seed simulates the collapse (~2.5 min) and caches it under `cascade/cache/`;
+later runs of that seed reuse it. Editing anything that changes the structure invalidates the cache
+by model hash, so the collapse re-runs.
+
+```bash
+.venv/bin/python -m pytest -q          # the test suite
+```
+
 ## Status
 
-Proposal stage. Phase 0 (world generator + collapse simulation) is the next deliverable — see the
-14-week plan and risk register in [`PROPOSAL.md`](PROPOSAL.md) §7.
+Proposal stage, with Phase 0 implemented: floor-plan grammar, structural model, collapse by
+simulation, dual-representation extraction, and a swarm traversal demo. See the 14-week plan and
+risk register in [`PROPOSAL.md`](PROPOSAL.md) §7.
+
+Known limitations of the Phase 0 demo, stated plainly because they bound what it evidences:
+
+- **Robots do not collide with each other.** Mutual deconfliction is a routing-policy problem and
+  belongs with the routing policy in Phase 1. With contacts on, a swarm sharing one doorway simply
+  queues into it and the run measures the queue rather than the ruin.
+- **Settled rubble is baked static.** It cannot shift, tip, or crush a robot, which makes the
+  traversal tractable but means this demo says nothing about survival under settling debris.
+- **The robots are teleoperated**, following routes from an offline planner with full knowledge of
+  the world. None of EMBER's contributions are exercised yet; that is the point of Phase 1 onward.
+- **The collapse is not energy-honest.** Peak kinetic energy exceeds the building's available
+  potential energy, so the solver is injecting energy during the violent phase. The settled result
+  is plausible and reproducible, but no quantitative claim should rest on the collapse dynamics
+  until this is characterised.

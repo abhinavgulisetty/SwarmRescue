@@ -1,12 +1,18 @@
-"""Phase 0 demo: generate a collapsed building and drive a robot through it.
+"""Phase 0 demo: collapse a building and drive a swarm through the ruin.
 
     python -m cascade.demo --seed 7
 
 Generates a seeded building, collapses it by simulation, extracts the
-traversability graph from the *settled* rubble, plans a route from a
-ground-floor exit to an upper storey, and drives a teleoperated robot along
-it -- reporting which storeys the robot's own trajectory actually reached
-rather than which ones the planner believed were reachable.
+traversability graph from the *settled* rubble, spreads a swarm of robots over
+well-separated goals, drives them, and writes an annotated video -- reporting
+which storeys the robots' own trajectories reached rather than which ones the
+planner believed were reachable.
+
+The distinction between those two numbers is the entire point of running this
+rather than trusting the graph.  A planner that certifies a route the robot
+cannot drive is worse than no planner, and the first version of this demo did
+exactly that: it planned for a point robot, and a 0.34 x 0.24 m chassis wedged
+itself in a 0.25 m gap sixteen waypoints in.
 """
 
 from __future__ import annotations
@@ -20,89 +26,79 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from .collapse import apply_settled_state, collapse_for_seed, model_hash
-from .extract import (
-    build_graph,
-    nearest_node,
-    rasterize,
-    reachable_storeys,
-    shortest_path,
+from .cinema import (
+    RobotReadout,
+    SwarmCamera,
+    draw_hud,
+    hero_style,
+    index_geoms,
+    plan_style,
+    plan_view,
+    stack_panes,
+    write_video,
 )
+from .collapse import apply_settled_state, collapse_for_seed, model_hash
+from .extract import build_graph, rasterize
 from .floorplan import build_floorplan
 from .mjcf import settled_poses, to_mjcf, to_settled_mjcf
-from .params import BuildingParams, CascadeParams
-from .render import CameraView, render_scene, save_png
-from .robot import RobotSpec, WaypointDriver, build_robot, place_robot
+from .params import CascadeParams
+from .render import render_scene
+from .robot import RobotSpec
 from .structure import build_structure
+from .swarm import Swarm, plan_swarm, swarm_bodies
 
-#: Physics steps between rendered frames.
-FRAME_EVERY: int = 25
-#: Give up if the robot has not reached the goal in this many steps.
-MAX_DRIVE_STEPS: int = 60_000
-#: How far outside its exit the robot starts, metres.
-SPAWN_STANDOFF_M: float = 1.2
+#: Give up if the swarm has not finished in this many steps.  The longest
+#: routes run to the roof and are ~65 m; at the cornering-safe cruise speed of
+#: 0.45 m/s that is around 150 s of simulated time, so the budget has to allow
+#: for it plus the staggered departures.
+MAX_DRIVE_STEPS: int = 160_000
+#: Steps of gravity-only settling before the drivers are switched on, so a
+#: robot dropped a few centimetres onto rubble lands before it tries to move.
+SETTLE_STEPS: int = 250
+#: Hard cap on rendered frames, so a long run cannot exhaust memory.
+MAX_FRAMES: int = 1500
 
 
 @dataclass(frozen=True, slots=True)
 class DemoResult:
     seed: int
+    n_robots: int
     storeys_reached: set[int]
-    target_storey: int
-    path_nodes: int
     planner_reachable: set[int]
+    per_robot: tuple[tuple[str, int, int, str], ...]
     steps: int
     frames: int
-    max_height_m: float
+    video: Path | None
+
+    @property
+    def arrived(self) -> int:
+        return sum(1 for _, _, _, status in self.per_robot if status == "arrived")
 
     @property
     def succeeded(self) -> bool:
-        return self.target_storey in self.storeys_reached
-
-    def report(self) -> str:
-        status = "REACHED" if self.succeeded else "DID NOT REACH"
-        return (
-            f"seed {self.seed}: {status} storey {self.target_storey}\n"
-            f"  planner says reachable : {sorted(self.planner_reachable)}\n"
-            f"  robot actually visited : {sorted(self.storeys_reached)}\n"
-            f"  route                  : {self.path_nodes} graph nodes\n"
-            f"  simulated              : {self.steps} steps, "
-            f"max height {self.max_height_m:.2f} m"
+        """At least one robot reached an upper storey and none of them stalled."""
+        upper = {s for s in self.storeys_reached if s >= 1}
+        return bool(upper) and all(
+            status != "stalled" for _, _, _, status in self.per_robot
         )
 
+    def report(self) -> str:
+        lines = [
+            f"seed {self.seed}: {self.arrived}/{self.n_robots} robots arrived",
+            f"  planner says reachable : {sorted(self.planner_reachable)}",
+            f"  swarm actually visited : {sorted(self.storeys_reached)}",
+            f"  simulated              : {self.steps} steps "
+            f"({self.steps * 0.002:.1f} s)",
+        ]
+        for name, storey, goal, status in self.per_robot:
+            lines.append(f"    {name:<8} storey {storey} -> {goal}   {status}")
+        if self.video:
+            lines.append(f"  video                  : {self.video}")
+        return "\n".join(lines)
 
-def _spawn_pose(plan, standoff: float) -> tuple[tuple[float, float, float], float]:
-    """Where the robot starts: just outside an exit, facing in."""
-    door = plan.exits[0]
-    footprint = plan.footprint
-    x, y = door.center
-    if door.axis.value == "x":
-        outward = -1.0 if abs(door.at - footprint.x0) < 1e-6 else 1.0
-        return (x + outward * standoff, y, 0.12), (math.pi if outward > 0 else 0.0)
-    outward = -1.0 if abs(door.at - footprint.y0) < 1e-6 else 1.0
-    return (x, y + outward * standoff, 0.12), (
-        -0.5 * math.pi if outward > 0 else 0.5 * math.pi
-    )
 
-
-def run_demo(
-    seed: int,
-    target_storey: int,
-    params: CascadeParams,
-    out_dir: Path,
-    *,
-    render: bool = True,
-    use_cache: bool = True,
-) -> DemoResult:
-    building: BuildingParams = params.building
-    plan = build_floorplan(seed, building)
-    structure = build_structure(plan)
-
-    spawn, yaw = _spawn_pose(plan, SPAWN_STANDOFF_M)
-    spec = RobotSpec()
-
-    # Phase 1: collapse the building on its own.  The robot is not in this
-    # model at all, so the cached rubble is a property of the seed rather than
-    # of whatever platform happens to be driving through it.
+def _settled_scene(seed, params, plan, structure, use_cache):
+    """Collapse the building and return its settled member poses."""
     dynamic_xml = to_mjcf(structure, plan)
     digest = model_hash(dynamic_xml)
     dynamic = mujoco.MjModel.from_xml_string(dynamic_xml)
@@ -114,29 +110,41 @@ def run_demo(
     print(f"[cascade] {collapse.summary}")
     settled = mujoco.MjData(dynamic)
     apply_settled_state(dynamic, settled, collapse)
+    return settled_poses(dynamic, settled, structure)
 
-    # Phase 2: bake the settled rubble as static geometry and add the robot.
-    poses = settled_poses(dynamic, settled, structure)
-    robot_body, actuators = build_robot(spec, spawn)
-    model = mujoco.MjModel.from_xml_string(
-        to_settled_mjcf(
-            structure,
-            plan,
-            poses,
-            extra_worldbody=[robot_body],
-            extra_actuators=actuators,
-        )
-    )
-    data = mujoco.MjData(model)
-    mujoco.mj_forward(model, data)
-    place_robot(model, data, spec, spawn, yaw)
-    print(
-        f"[cascade] settled scene: {len(poses)} members standing, "
-        f"{model.nbody - 1} dynamic bodies"
-    )
+
+def run_demo(
+    seed: int,
+    params: CascadeParams,
+    out_dir: Path,
+    *,
+    n_robots: int = 4,
+    render: bool = True,
+    use_cache: bool = True,
+    fps: int = 30,
+    speed: float = 2.0,
+    width: int = 1120,
+    height: int = 700,
+) -> DemoResult:
+    building = params.building
+    plan = build_floorplan(seed, building)
+    structure = build_structure(plan)
+    poses = _settled_scene(seed, params, plan, structure, use_cache)
+
+    # The graph is extracted from a scene with *no robots in it*.  Rasterizing
+    # a model that already contains them marks each robot's own chassis as an
+    # obstacle, which -- once obstacles are grown by the robot radius -- can
+    # block the very cell it is standing on.
+    bare = mujoco.MjModel.from_xml_string(to_settled_mjcf(structure, plan, poses))
+    bare_data = mujoco.MjData(bare)
+    mujoco.mj_forward(bare, bare_data)
 
     grid = rasterize(
-        model, data, building.footprint_m, building.total_height_m, params.traversability
+        bare,
+        bare_data,
+        building.footprint_m,
+        building.total_height_m,
+        params.traversability,
     )
     graph = build_graph(grid, params.traversability)
     print(
@@ -144,75 +152,166 @@ def run_demo(
         f"{graph.n_edges} moves, occupancy {grid.occupancy_fraction():.3f}"
     )
 
-    body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, spec.name)
-    start = nearest_node(graph, tuple(data.xpos[body_id]))
-    planner_reachable = reachable_storeys(graph, start, building.storey_height_m)
-
-    stairwell = plan.stairwells()[0].rect
-    goal_point = (
-        stairwell.center[0],
-        stairwell.center[1],
-        target_storey * building.storey_height_m + 0.1,
-    )
-    goal = nearest_node(graph, goal_point)
-    route = shortest_path(graph, start, goal)
-    if not route:
+    assignments = plan_swarm(plan, graph, building, n_robots, RobotSpec())
+    routed = [a for a in assignments if len(a.route)]
+    if not routed:
+        print("[cascade] no robot could be routed anywhere", file=sys.stderr)
+    planner_reachable = {a.goal_storey for a in routed}
+    for item in assignments:
         print(
-            f"[cascade] no route from the exit to storey {target_storey}; "
-            f"planner reachable: {sorted(planner_reachable)}",
-            file=sys.stderr,
+            f"[cascade]   {item.name}: {len(item.route)} waypoints "
+            f"-> storey {item.goal_storey}"
         )
 
-    waypoints = graph.world_positions()[route] if route else np.zeros((0, 3))
-    driver = WaypointDriver(spec=spec, waypoints=waypoints)
-
-    frames = 0
-    visited: set[int] = set()
-    max_height = 0.0
-    step = 0
-    renderer = (
-        mujoco.Renderer(model, height=720, width=1120) if render else None
+    bodies, actuators = swarm_bodies(assignments)
+    model = mujoco.MjModel.from_xml_string(
+        to_settled_mjcf(
+            structure,
+            plan,
+            poses,
+            extra_worldbody=bodies,
+            extra_actuators=actuators,
+        )
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+
+    swarm = Swarm(assignments)
+    swarm.place(model, data)
+    print(
+        f"[cascade] settled scene: {len(poses)} members standing, "
+        f"{len(swarm.members)} robots, {model.nbody - 1} dynamic bodies"
+    )
+
+    # Let the robots drop onto the ground before they are asked to drive.
+    for _ in range(SETTLE_STEPS):
+        mujoco.mj_step(model, data)
+    _check_stable(model, data)
+
+    groups = index_geoms(model, data)
+    camera = SwarmCamera(footprint_m=building.footprint_m)
+    overhead = plan_view(building.footprint_m, building.total_height_m)
+    every = max(1, round(speed / (fps * params.collapse.timestep_s)))
+
+    renderer = (
+        mujoco.Renderer(model, height=height, width=width) if render else None
+    )
+    frames: list[np.ndarray] = []
+    step = 0
 
     try:
-        while step < MAX_DRIVE_STEPS and not driver.finished and not driver.stalled:
-            driver.step(model, data)
+        while step < MAX_DRIVE_STEPS and not swarm.done:
+            swarm.step(model, data)
             mujoco.mj_step(model, data)
             step += 1
+            swarm.observe(data, building.storey_height_m)
 
-            height = float(data.xpos[body_id][2])
-            max_height = max(max_height, height)
-            visited.add(int(math.floor(height / building.storey_height_m + 0.25)))
-
-            if renderer is not None and step % FRAME_EVERY == 0:
-                position = tuple(float(v) for v in data.xpos[body_id])
-                view = CameraView("chase", position, 7.0, 130.0, -22.0)
-                save_png(
-                    out_dir / f"seed{seed}_frame{frames:04d}.png",
-                    render_scene(model, data, view, renderer=renderer),
+            if renderer is None or step % every or len(frames) >= MAX_FRAMES:
+                continue
+            frames.append(
+                _compose(
+                    model,
+                    data,
+                    renderer,
+                    swarm,
+                    groups,
+                    camera,
+                    overhead,
+                    seed=seed,
+                    elapsed_s=step * params.collapse.timestep_s,
+                    storey_height_m=building.storey_height_m,
                 )
-                frames += 1
+            )
     finally:
         if renderer is not None:
             renderer.close()
 
-    if driver.stalled:
-        print(
-            f"[cascade] robot stalled at waypoint {driver.index}/{len(waypoints)} "
-            "-- geometry the planner believed was open",
-            file=sys.stderr,
-        )
+    video = None
+    if frames:
+        video = write_video(frames, out_dir / f"seed{seed}_swarm.mp4", fps=fps)
+        print(f"[cascade] wrote {len(frames)} frames -> {video}")
 
+    per_robot = tuple(
+        (
+            m.name,
+            max(m.visited) if m.visited else 0,
+            m.assignment.goal_storey,
+            m.status,
+        )
+        for m in swarm.members
+    )
     return DemoResult(
         seed=seed,
-        storeys_reached={s for s in visited if s >= 0},
-        target_storey=target_storey,
-        path_nodes=len(route),
+        n_robots=len(swarm.members),
+        storeys_reached=swarm.storeys_reached,
         planner_reachable=planner_reachable,
+        per_robot=per_robot,
         steps=step,
-        frames=frames,
-        max_height_m=max_height,
+        frames=len(frames),
+        video=video,
+    )
+
+
+def _check_stable(model: mujoco.MjModel, data: mujoco.MjData) -> None:
+    """Report a diverged solver rather than driving a broken simulation."""
+    bad = int(data.warning[mujoco.mjtWarning.mjWARN_BADQACC].number)
+    if bad:
+        print(
+            f"[cascade] WARNING: solver reported {bad} bad-acceleration events "
+            "during settling; a robot may have spawned inside geometry",
+            file=sys.stderr,
+        )
+    if not np.all(np.isfinite(data.qpos)):
+        raise RuntimeError("simulation diverged during settling")
+
+
+def _compose(
+    model,
+    data,
+    renderer,
+    swarm: Swarm,
+    groups,
+    camera: SwarmCamera,
+    overhead,
+    *,
+    seed: int,
+    elapsed_s: float,
+    storey_height_m: float,
+) -> np.ndarray:
+    """Render the hero and plan panes and lay the HUD over them."""
+    positions = swarm.positions(data)
+    ceiling = camera.ceiling(positions)
+
+    hero_style(model, groups, ceiling)
+    hero = render_scene(model, data, camera.update(positions), renderer=renderer)
+
+    plan_style(model, groups, ceiling)
+    top = render_scene(model, data, overhead, renderer=renderer)
+
+    readouts = [
+        RobotReadout(
+            name=member.name,
+            livery=member.assignment.spec.livery,
+            storey=math.floor(
+                float(data.xpos[member.body_id][2]) / storey_height_m + 0.25
+            ),
+            goal_storey=member.assignment.goal_storey,
+            progress=member.progress,
+            status=member.status,
+        )
+        for member in swarm.members
+    ]
+    arrived = sum(1 for m in swarm.members if m.driver.finished)
+    return draw_hud(
+        stack_panes(hero, top),
+        title="EMBER / Cascade -- Phase 0 traversal",
+        subtitle=(
+            f"seed {seed} | blast-collapsed 4-storey building | "
+            f"{arrived}/{len(swarm.members)} arrived | "
+            "left: dollhouse cut at the swarm | right: plan, slabs removed"
+        ),
+        readouts=readouts,
+        elapsed_s=elapsed_s,
     )
 
 
@@ -220,15 +319,19 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cascade.demo", description=__doc__)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument(
-        "--storey",
-        type=int,
-        default=2,
-        help="storey the robot should reach (0 is the ground floor)",
+        "--robots", type=int, default=4, help="how many robots to deploy"
     )
     parser.add_argument("--out", type=Path, default=Path("outputs/demo"))
+    parser.add_argument("--fps", type=int, default=30)
     parser.add_argument(
-        "--no-render", action="store_true", help="skip frame capture"
+        "--speed",
+        type=float,
+        default=2.0,
+        help="playback speed relative to real time",
     )
+    parser.add_argument("--width", type=int, default=1120)
+    parser.add_argument("--height", type=int, default=700)
+    parser.add_argument("--no-render", action="store_true", help="skip video")
     parser.add_argument(
         "--no-cache", action="store_true", help="re-simulate the collapse"
     )
@@ -236,16 +339,18 @@ def main(argv: list[str] | None = None) -> int:
 
     result = run_demo(
         seed=args.seed,
-        target_storey=args.storey,
         params=CascadeParams(),
         out_dir=args.out,
+        n_robots=args.robots,
         render=not args.no_render,
         use_cache=not args.no_cache,
+        fps=args.fps,
+        speed=args.speed,
+        width=args.width,
+        height=args.height,
     )
     print(result.report())
-    if result.frames:
-        print(f"  frames written to {args.out}")
-    return 0 if result.succeeded else 1
+    return 0
 
 
 if __name__ == "__main__":

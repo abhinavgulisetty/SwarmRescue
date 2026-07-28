@@ -226,12 +226,24 @@ class TraversabilityParams:
     min_squeeze_width_m: float = 0.30
     #: Vertical clearance the robot needs to occupy a cell (its own height).
     min_clearance_m: float = 0.28
+    #: Radius of the disc the robot sweeps when it turns on the spot, metres.
+    #:
+    #: The graph is planned in *configuration space*: obstacles are grown by
+    #: this before standable cells are extracted, so a node means "the robot's
+    #: centre can be here", not "this point is not inside a wall".  Without it
+    #: the planner is solving for a point robot -- it routed a 0.34 x 0.24 m
+    #: chassis through 0.25 m gaps, and the robot wedged itself on geometry the
+    #: planner had certified as open.  Half the chassis diagonal is the right
+    #: value because the platform is skid-steered and yaws while driving, so no
+    #: smaller disc is guaranteed clear.
+    robot_radius_m: float = 0.21
 
     def __post_init__(self) -> None:
         _require(self.voxel_size_m > 0.0, "voxel_size_m must be positive")
         _require(self.voxel_height_m > 0.0, "voxel_height_m must be positive")
         _require(0.0 < self.max_slope_deg < 90.0, "max_slope_deg must be in (0, 90)")
         _require(self.min_clearance_m > 0.0, "min_clearance_m must be positive")
+        _require(self.robot_radius_m > 0.0, "robot_radius_m must be positive")
 
     @property
     def clearance_levels(self) -> int:

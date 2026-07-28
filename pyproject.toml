@@ -12,6 +12,10 @@ dependencies = [
     "polars>=1.0",
     "hydra-core>=1.3",
     "imageio>=2.30",
+    # The mp4 encoder imageio dispatches to.  Without it the demo silently
+    # degrades to an animated GIF, which is 20x the size at a third the frame
+    # rate -- fine as a fallback, not fine as the default deliverable.
+    "imageio-ffmpeg>=0.5",
     "matplotlib>=3.8",
     "rich>=13.0",
 ]
