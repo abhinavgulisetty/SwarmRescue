@@ -288,6 +288,28 @@ def write_mjcf(path: str, xml: str) -> None:
         handle.write(xml)
 
 
+#: A member that ends the collapse within this of where it was drawn is taken
+#: not to have moved, and is written back at its authored pose.
+#:
+#: Welds in MuJoCo are soft, so four thousand steps of a violent collapse leave
+#: every *surviving* member a few centimetres from where it started even when
+#: nothing touched it.  That drift is integrator noise and it is not harmless:
+#: a stair flight and the landing it meets each drifted about 0.06 m in
+#: opposite directions, which turned a flush junction into a 0.12 m lip at the
+#: crest of a ramp -- the one place a robot is pitched up on its rear wheels
+#: and least able to mount anything.  Every robot in the swarm teetered there
+#: and slid back down.
+#:
+#: The tolerance has to stay small, because sag *is* real damage: a slab whose
+#: columns have gone drops, and snapping that back would be a lie about the
+#: scenario.  Anything that has moved further than a wheel radius is left
+#: exactly where the physics put it.
+SNAP_TOLERANCE_M: float = 0.12
+#: ...and the same for rotation, as the cosine of half the angle.  About 6
+#: degrees; a member that has tipped further has genuinely tipped.
+SNAP_TOLERANCE_COS: float = 0.9986
+
+
 def settled_poses(model, data, structure: Structure) -> dict[str, tuple]:
     """Read each surviving member's world pose out of a settled MjData."""
     import mujoco
@@ -303,8 +325,17 @@ def settled_poses(model, data, structure: Structure) -> dict[str, tuple]:
             continue  # pulverized by the blast; it no longer exists
         quat = np.zeros(4)
         mujoco.mju_mat2Quat(quat, np.asarray(data.xmat[body], dtype=np.float64))
+        position = np.asarray(data.xpos[body], dtype=np.float64)
+
+        authored_pos = np.asarray(member.center, dtype=np.float64)
+        authored_quat = np.asarray(member.quat, dtype=np.float64)
+        moved = float(np.linalg.norm(position - authored_pos))
+        turned = abs(float(authored_quat @ quat))
+        if moved <= SNAP_TOLERANCE_M and turned >= SNAP_TOLERANCE_COS:
+            position, quat = authored_pos, authored_quat
+
         out[member.name] = (
-            tuple(float(v) for v in data.xpos[body]),
+            tuple(float(v) for v in position),
             tuple(float(v) for v in quat),
         )
     return out

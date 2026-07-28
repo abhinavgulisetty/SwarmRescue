@@ -7,6 +7,8 @@ rotation sign error and the missing floor-level landings.
 
 from __future__ import annotations
 
+import math
+
 import mujoco
 import numpy as np
 import pytest
@@ -14,6 +16,7 @@ import pytest
 from cascade.extract import (
     GRID_MARGIN_M,
     build_graph,
+    dijkstra_from,
     height_map,
     nearest_node,
     rasterize,
@@ -43,7 +46,7 @@ def _world(seed: int):
         params.building.total_height_m,
         params.traversability,
     )
-    return params, plan, grid, build_graph(grid, params.traversability)
+    return params, plan, grid, build_graph(grid, params.traversability, model, data)
 
 
 @pytest.fixture(scope="module")
@@ -218,7 +221,7 @@ def _slot_is_traversable(gap_m: float) -> bool:
     data = mujoco.MjData(model)
     mujoco.mj_forward(model, data)
     grid = rasterize(model, data, (4.0, 4.0), 2.5, params.traversability)
-    graph = build_graph(grid, params.traversability)
+    graph = build_graph(grid, params.traversability, model, data)
     positions = graph.world_positions()
     # Standable cells on the ground, inside the slot and clear of its mouths.
     inside = (
@@ -249,3 +252,76 @@ def test_unreachable_goal_returns_empty_path(world) -> None:
     # Node 0 to itself is trivially reachable; a negative index is not a node,
     # so use an isolated synthetic case instead.
     assert shortest_path(graph, 0, 0) == [0]
+
+
+# --- ramps, ledges, and edges -------------------------------------------------
+
+
+def _ramp_scene(*, width_m: float, ledge: bool) -> mujoco.MjModel:
+    """A 20 degree ramp `width_m` wide running along +x from x = 1 to x = 3.
+
+    With `ledge`, the ramp is replaced by a flat plinth at the same top height
+    as the ramp's head, so the only way up is a vertical face.
+    """
+    pitch = math.radians(20.0)
+    run, thickness = 2.0, 0.16
+    rise = run * math.tan(pitch)
+    if ledge:
+        block = (
+            f'<geom name="g_slab_ledge" type="box" '
+            f'size="{0.5 * run} {0.5 * width_m} {0.5 * rise}" '
+            f'pos="2.0 2.0 {0.5 * rise}"/>'
+        )
+    else:
+        length = math.hypot(run, rise)
+        block = (
+            f'<geom name="g_stair_ramp" type="box" '
+            f'size="{0.5 * length} {0.5 * width_m} {0.5 * thickness}" '
+            f'pos="2.0 2.0 {0.5 * rise + 0.5 * thickness * math.cos(pitch)}" '
+            f'euler="0 {-math.degrees(pitch)} 0"/>'
+        )
+    return mujoco.MjModel.from_xml_string(
+        f'<mujoco><worldbody><geom type="plane" size="10 10 0.1"/>{block}'
+        "</worldbody></mujoco>"
+    )
+
+
+def _tops_out(model: mujoco.MjModel, height_m: float) -> bool:
+    """Is any cell above `height_m` connected to the ground outside the ramp?"""
+    params = CascadeParams()
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+    grid = rasterize(model, data, (4.0, 4.0), 2.5, params.traversability)
+    graph = build_graph(grid, params.traversability, model, data)
+    if graph.n_nodes == 0:
+        return False
+    positions = graph.world_positions()
+    start = int(np.argmin(np.linalg.norm(positions - np.array([0.4, 2.0, 0.0]), axis=1)))
+    dist, _ = dijkstra_from(graph, start)
+    return bool((np.isfinite(dist) & (positions[:, 2] > height_m)).any())
+
+
+def test_a_ramp_is_climbable() -> None:
+    """A 20 degree grade is a grade, however the height lattice rounds it."""
+    assert _tops_out(_ramp_scene(width_m=2.0, ledge=False), 0.5)
+
+
+def test_a_ledge_of_the_same_height_is_not() -> None:
+    """The distinction the lattice cannot make on its own.
+
+    Over one 0.25 m cell a 20 degree ramp and a 0.09 m vertical face produce
+    exactly the same pair of numbers.  Any single rise threshold that admits
+    the staircase therefore also admits driving up the side of it, and that is
+    what the whole swarm did.
+    """
+    assert not _tops_out(_ramp_scene(width_m=2.0, ledge=True), 0.5)
+
+
+def test_a_ramp_narrower_than_the_chassis_is_not_climbable() -> None:
+    """Ground under the centre is not ground under the robot.
+
+    A 0.3 m ramp has material beneath every cell along its spine and nothing
+    beneath either wheel.  Routed up it, the robot dropped a wheel over the
+    side within a metre and hung there -- four times out of four.
+    """
+    assert not _tops_out(_ramp_scene(width_m=0.3, ledge=False), 0.5)

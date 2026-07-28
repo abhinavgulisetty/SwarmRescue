@@ -58,6 +58,11 @@ SPAWN_SPACING_M: float = 0.85
 #: as a sequence of deployments on camera rather than four bodies leaving as
 #: one indistinguishable clump.
 DEPARTURE_STAGGER_STEPS: int = 1100
+#: How far above or below a storey's floor level a cell may sit and still be
+#: offered as a goal, metres.  Wide enough to include the top of a low debris
+#: pile, narrow enough to exclude a stair flight.
+GOAL_FLOOR_TOLERANCE_M: float = 0.20
+
 
 @dataclass(frozen=True, slots=True)
 class Assignment:
@@ -181,7 +186,19 @@ def choose_goals(
     and subsequent goals on the same storey are pushed away from the ones
     already taken.
     """
-    reachable = np.isfinite(cost)
+    # Goals are on floors, never on stairs.  Unconstrained, "the costliest
+    # reachable cell on storey 3" is reliably a cell most of the way up the
+    # flight *to* storey 3 -- that is what costs the most to reach -- and the
+    # demo then measured whether a robot could stop dead on a 34 degree ramp
+    # one waypoint short of the landing.  All four robots drove their whole
+    # route and then slid back down the last flight.  A place worth searching
+    # is somewhere a casualty could be lying, which is a floor.
+    on_floor = (
+        np.abs(graph.surface_z - np.round(graph.surface_z / storey_height_m)
+               * storey_height_m)
+        <= GOAL_FLOOR_TOLERANCE_M
+    )
+    reachable = np.isfinite(cost) & on_floor
     if not reachable.any():
         return []
 
@@ -355,6 +372,18 @@ class Swarm:
             storey = math.floor(height / storey_height_m + 0.25)
             if storey >= 0:
                 member.visited.add(storey)
+
+    def focus(self) -> SwarmMember:
+        """The robot the camera should be watching: whoever has furthest to go.
+
+        Robots that have arrived or given up are not interesting to look at,
+        and a shot that stays on one after it stops is a shot of a parked
+        robot while three others are still climbing.
+        """
+        active = [
+            m for m in self.members if not (m.driver.finished or m.driver.stalled)
+        ]
+        return min(active or self.members, key=lambda m: m.progress)
 
     def positions(self, data: mujoco.MjData) -> np.ndarray:
         return np.array(

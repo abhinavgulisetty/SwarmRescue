@@ -117,41 +117,74 @@ def test_styling_never_hides_a_robot(scene) -> None:
 # --- camera -------------------------------------------------------------------
 
 
-def test_camera_frames_the_robots_it_is_given() -> None:
+def test_camera_aims_at_its_subject() -> None:
     camera = SwarmCamera(footprint_m=(24.0, 18.0))
-    positions = np.array([[4.0, 4.0, 0.1], [6.0, 6.0, 0.1]])
-    view = camera.update(positions)
-    assert view.lookat[0] == pytest.approx(5.0, abs=1e-6)
-    assert view.lookat[1] == pytest.approx(5.0, abs=1e-6)
+    subject = np.array([4.0, 4.0, 0.1])
+    others = np.array([[4.0, 4.0, 0.1], [6.0, 6.0, 0.1]])
+    view = camera.update(subject, others)
+    assert view.lookat[0] == pytest.approx(4.0, abs=1e-6)
+    assert view.lookat[1] == pytest.approx(4.0, abs=1e-6)
+
+
+def test_camera_ignores_robots_on_other_storeys() -> None:
+    """A robot four floors up must not drag the framing off this one.
+
+    It cannot be in shot: the dollhouse cut that exposes the subject's storey
+    removes the one it is standing on.  Framing for it only pushes the camera
+    back until the robots that *are* visible are too small to see.
+    """
+    camera = SwarmCamera(footprint_m=(24.0, 18.0))
+    subject = np.array([4.0, 4.0, 0.1])
+    others = np.array([[4.0, 4.0, 0.1], [20.0, 16.0, 12.0]])
+    view = camera.update(subject, others)
+    assert view.distance == pytest.approx(camera.min_distance_m, abs=1e-6)
 
 
 def test_camera_never_pulls_back_past_its_limit() -> None:
     """A straggler must not drag the framing out until nothing is legible."""
     camera = SwarmCamera(footprint_m=(24.0, 18.0))
+    subject = np.array([0.0, 0.0, 0.0])
     scattered = np.array([[0.0, 0.0, 0.0], [400.0, 400.0, 0.0]])
-    view = camera.update(scattered)
+    view = camera.update(subject, scattered)
     assert view.distance <= camera.max_distance_m + 1e-9
 
 
 def test_camera_orbits_between_frames() -> None:
     camera = SwarmCamera(footprint_m=(24.0, 18.0))
-    positions = np.array([[4.0, 4.0, 0.1]])
-    first = camera.update(positions).azimuth
-    second = camera.update(positions).azimuth
+    subject = np.array([4.0, 4.0, 0.1])
+    others = np.array([[4.0, 4.0, 0.1]])
+    first = camera.update(subject, others).azimuth
+    second = camera.update(subject, others).azimuth
     assert second != first
 
 
-def test_ceiling_sits_above_the_highest_robot() -> None:
+def test_ceiling_sits_above_the_subject() -> None:
     camera = SwarmCamera(footprint_m=(24.0, 18.0))
-    positions = np.array([[4.0, 4.0, 0.1], [6.0, 6.0, 6.2]])
-    assert camera.ceiling(positions) > 6.2
+    assert camera.ceiling(np.array([6.0, 6.0, 6.2])) > 6.2
+
+
+def test_ceiling_ignores_robots_above_the_subject() -> None:
+    """Cutting above the *highest* robot seals the building over the rest.
+
+    One robot reaching the roof put the cut at 13.75 m, above every slab in
+    the model, so nothing was removed and the remaining three robots spent the
+    rest of the run inside an opaque box.
+    """
+    camera = SwarmCamera(footprint_m=(24.0, 18.0))
+    assert camera.ceiling(np.array([4.0, 4.0, 0.1])) < 3.0
 
 
 # --- overlay ------------------------------------------------------------------
 
 
-def test_hud_preserves_frame_size() -> None:
-    frame = np.zeros((240, 480, 3), dtype=np.uint8)
+def test_hud_adds_bands_without_covering_the_frame() -> None:
+    """The caption must not sit on top of the thing it is captioning.
+
+    Drawn as an overlay, the title bar and the status panel between them hid
+    the top and bottom third of the plan pane -- the view that exists to show
+    where every robot is.
+    """
+    frame = np.full((240, 480, 3), 200, dtype=np.uint8)
     out = draw_hud(
         frame,
         title="t",
@@ -161,8 +194,14 @@ def test_hud_preserves_frame_size() -> None:
         ],
         elapsed_s=1.0,
     )
-    assert out.shape == frame.shape
     assert out.dtype == np.uint8
+    assert out.shape[1] == frame.shape[1]
+    assert out.shape[0] > frame.shape[0]
+    # Every row of the original survives somewhere, untouched.
+    rows = {tuple(row) for row in out.reshape(out.shape[0], -1)}
+    assert tuple(np.full(480 * 3, 200, dtype=np.uint8)) in rows
+    kept = sum(1 for row in out.reshape(out.shape[0], -1) if row.min() == 200)
+    assert kept == frame.shape[0]
 
 
 def test_hud_actually_draws_something() -> None:

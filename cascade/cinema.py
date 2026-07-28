@@ -36,12 +36,15 @@ _MEMBER_PREFIXES: tuple[str, ...] = ("col_", "beam_", "slab_", "wall_", "stair_"
 
 #: Alpha for partitions under the cut: solid enough to read the plan, sheer
 #: enough to see a robot through.
-WALL_ALPHA: float = 0.40
+WALL_ALPHA: float = 0.26
 #: Alpha for walls in the plan pane, where they are the only context left.
 PLAN_WALL_ALPHA: float = 0.75
 #: Height of the cut above the robot being followed, metres.  Clears the
 #: robot's beacon and the door heads, and stays under the next slab up.
 CEILING_MARGIN_M: float = 1.75
+#: How far above or below the subject another robot counts as being on the
+#: same storey, and so worth keeping in frame, metres.
+COMPANION_HEIGHT_M: float = 1.6
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,9 +189,15 @@ class SwarmCamera:
     #: Degrees of orbit per rendered frame -- slow enough to read as a survey.
     orbit_rate_deg: float = 0.16
     azimuth: float = 35.0
-    elevation: float = -32.0
+    #: Steep enough to look *into* the cut building rather than across it.  At
+    #: -32 degrees with the swarm bunched on a staircase the camera closed to
+    #: its minimum distance and ended up between two partitions, filling the
+    #: frame with the near face of a wall.
+    elevation: float = -42.0
     smoothing: float = 0.06
-    min_distance_m: float = 9.0
+    #: Never close inside this.  The cut exposes one storey, and a lens closer
+    #: than the room it is looking into sees the wall, not the room.
+    min_distance_m: float = 15.0
     #: Never pull back further than this.  A straggler on the far side of the
     #: building would otherwise drag the framing out until every robot in shot
     #: is a couple of pixels across -- the wide shot that shows everything and
@@ -198,17 +207,32 @@ class SwarmCamera:
     _lookat: np.ndarray | None = field(default=None, repr=False)
     _distance: float | None = field(default=None, repr=False)
 
-    def update(self, positions: np.ndarray) -> CameraView:
-        """Advance the orbit and reframe around the robots' positions."""
+    def update(self, subject: np.ndarray, others: np.ndarray) -> CameraView:
+        """Advance the orbit and reframe around `subject` and its neighbours.
+
+        One subject rather than the whole swarm, because the swarm is spread
+        over four storeys by design and a single frame cannot hold it.  Aiming
+        at the centroid of robots on storeys 1 and 4 points the camera at the
+        slab between them; worse, the cut has to clear the highest of them, so
+        one robot reaching the roof sealed the building and hid the other
+        three.  The plan pane is what accounts for everyone.
+        """
         width, depth = self.footprint_m
-        if positions.size == 0:
+        if subject is None or np.size(subject) == 0:
             target = np.array([0.5 * width, 0.5 * depth, 1.5])
             spread = max(width, depth)
         else:
-            target = positions.mean(axis=0)
-            # Frame the cloud, not just its centre.
-            spread = float(
-                np.linalg.norm(positions - target, axis=1).max() * 2.4
+            target = np.asarray(subject, dtype=np.float64)
+            # Robots on the same storey are in shot anyway; frame them too.
+            near = (
+                others[np.abs(others[:, 2] - target[2]) < COMPANION_HEIGHT_M]
+                if np.size(others)
+                else np.zeros((0, 3))
+            )
+            spread = (
+                float(np.linalg.norm(near - target, axis=1).max() * 1.8)
+                if near.shape[0]
+                else 0.0
             )
 
         want_distance = min(
@@ -231,20 +255,37 @@ class SwarmCamera:
             elevation=self.elevation,
         )
 
-    def ceiling(self, positions: np.ndarray) -> float:
-        """Height to cut the building at, given where the robots are."""
-        if positions.size == 0:
+    def ceiling(self, subject: np.ndarray) -> float:
+        """Height to cut the building at, given where the subject is."""
+        if subject is None or np.size(subject) == 0:
             return 1e9
-        return float(positions[:, 2].max()) + CEILING_MARGIN_M
+        return float(np.asarray(subject)[2]) + CEILING_MARGIN_M
 
 
-def plan_view(footprint_m: tuple[float, float], total_height_m: float) -> CameraView:
-    """Fixed top-down view of the whole footprint."""
+#: Vertical extent a MuJoCo camera sees per metre of distance, at the default
+#: 45 degree field of view: 2 * tan(22.5 deg).
+_VIEW_PER_METRE: float = 0.828
+
+
+def plan_view(
+    footprint_m: tuple[float, float],
+    total_height_m: float,
+    aspect: float = 1.6,
+) -> CameraView:
+    """Fixed top-down view framed to the footprint.
+
+    Framed rather than guessed.  The old fixed multiple of the longer side put
+    the camera 37 m up over a 24 x 18 m building, which left a third of the
+    pane empty on every side and shrank each robot to a couple of pixels in
+    the one view whose entire job is to say where they are.
+    """
     width, depth = footprint_m
+    margin = 1.22
+    distance = margin * max(depth, width / aspect) / _VIEW_PER_METRE
     return CameraView(
         name="plan",
         lookat=(0.5 * width, 0.5 * depth, 0.5 * total_height_m),
-        distance=max(width, depth) * 1.55,
+        distance=distance,
         azimuth=90.0,
         elevation=-89.0,
     )
@@ -288,21 +329,34 @@ def draw_hud(
     readouts: list[RobotReadout],
     elapsed_s: float,
 ) -> np.ndarray:
-    """Composite a status overlay onto a rendered frame."""
+    """Return the frame with a title bar above it and a status panel below.
+
+    Around the frame rather than over it.  Drawn as overlays these two bands
+    covered the top and bottom third of the plan pane -- which is where the
+    building was -- so the view whose job is to show every robot at once was
+    showing the middle half of the floor and hiding the rest behind the
+    caption describing it.
+    """
     from PIL import Image, ImageDraw
 
-    image = Image.fromarray(frame).convert("RGB")
-    draw = ImageDraw.Draw(image, "RGBA")
-    width, height = image.size
+    pane = Image.fromarray(frame).convert("RGB")
+    width, pane_height = pane.size
 
     pad = max(12, width // 80)
     title_font = _font(max(16, width // 46))
     body_font = _font(max(12, width // 74))
     small_font = _font(max(11, width // 88))
 
-    # Header band.
     band = pad * 2 + title_font.size + small_font.size
-    draw.rectangle([0, 0, width, band], fill=(10, 12, 16, 205))
+    row_h = body_font.size + 10
+    panel_h = pad + row_h * len(readouts) + pad // 2
+
+    height = band + pane_height + panel_h
+    image = Image.new("RGB", (width, height), (10, 12, 16))
+    image.paste(pane, (0, band))
+    draw = ImageDraw.Draw(image, "RGBA")
+
+    # Header band.
     draw.text((pad, pad // 2), title, font=title_font, fill=(238, 240, 245))
     draw.text(
         (pad, pad // 2 + title_font.size + 2),
@@ -319,10 +373,7 @@ def draw_hud(
     )
 
     # Per-robot rows.
-    row_h = body_font.size + 10
-    panel_h = pad + row_h * len(readouts) + pad // 2
-    top = height - panel_h
-    draw.rectangle([0, top, width, height], fill=(10, 12, 16, 200))
+    top = band + pane_height
 
     bar_w = max(90, width // 7)
     for index, readout in enumerate(readouts):
@@ -383,24 +434,43 @@ def stack_panes(hero: np.ndarray, plan: np.ndarray) -> np.ndarray:
     return np.concatenate((hero, gap, resized), axis=1)
 
 
-def write_video(frames: list[np.ndarray], path: str | Path, fps: int = 30) -> Path:
-    """Encode frames to an mp4.  Falls back to a GIF if no encoder is present."""
-    import imageio.v3 as iio
+class VideoWriter:
+    """Encodes frames to an mp4 as they arrive.
 
-    out = Path(path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    if not frames:
-        raise ValueError("write_video needs at least one frame")
+    Streaming rather than collecting, because a traversal of a four-storey
+    building runs to a couple of thousand frames and a pane pair at this size
+    is 4.7 MB each.  Holding them all and encoding at the end needs the better
+    part of ten gigabytes, and the demo was killed by the OOM reaper after
+    twenty minutes of simulation with nothing written out.
+    """
 
-    # H.264 wants even dimensions.
-    height, width = frames[0].shape[:2]
-    crop_h, crop_w = height - (height % 2), width - (width % 2)
-    clipped = [f[:crop_h, :crop_w] for f in frames]
+    def __init__(self, path: str | Path, fps: int = 30) -> None:
+        import imageio.v2 as iio
 
-    try:
-        iio.imwrite(out, np.stack(clipped), fps=fps, codec="libx264", quality=8)
-        return out
-    except Exception:  # any encoder failure is worth degrading on, not dying
-        fallback = out.with_suffix(".gif")
-        iio.imwrite(fallback, np.stack(clipped), duration=1000 / fps, loop=0)
-        return fallback
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._writer = iio.get_writer(
+            self.path, fps=fps, codec="libx264", quality=8
+        )
+        self._shape: tuple[int, int] | None = None
+        self.frames = 0
+
+    def append(self, frame: np.ndarray) -> None:
+        if self._shape is None:
+            height, width = frame.shape[:2]
+            # H.264 wants even dimensions, and the encoder needs every frame
+            # the same size as the first.
+            self._shape = (height - height % 2, width - width % 2)
+        height, width = self._shape
+        self._writer.append_data(np.ascontiguousarray(frame[:height, :width]))
+        self.frames += 1
+
+    def close(self) -> Path | None:
+        self._writer.close()
+        return self.path if self.frames else None
+
+    def __enter__(self) -> VideoWriter:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()

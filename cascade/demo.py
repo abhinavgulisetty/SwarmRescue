@@ -29,13 +29,13 @@ import numpy as np
 from .cinema import (
     RobotReadout,
     SwarmCamera,
+    VideoWriter,
     draw_hud,
     hero_style,
     index_geoms,
     plan_style,
     plan_view,
     stack_panes,
-    write_video,
 )
 from .collapse import apply_settled_state, collapse_for_seed, model_hash
 from .extract import build_graph, rasterize
@@ -49,14 +49,16 @@ from .swarm import Swarm, plan_swarm, swarm_bodies
 
 #: Give up if the swarm has not finished in this many steps.  The longest
 #: routes run to the roof and are ~65 m; at the cornering-safe cruise speed of
-#: 0.45 m/s that is around 150 s of simulated time, so the budget has to allow
-#: for it plus the staggered departures.
+#: 0.5 m/s that is around 130 s of simulated time, and the budget has to cover
+#: that plus the staggered departures, the switchbacks a robot creeps through,
+#: and a few recovery manoeuvres each.
 MAX_DRIVE_STEPS: int = 160_000
 #: Steps of gravity-only settling before the drivers are switched on, so a
 #: robot dropped a few centimetres onto rubble lands before it tries to move.
 SETTLE_STEPS: int = 250
-#: Hard cap on rendered frames, so a long run cannot exhaust memory.
-MAX_FRAMES: int = 1500
+#: Hard cap on rendered frames, so a run that never terminates cannot
+#: produce an unwatchably long video.  At 24 fps this is two minutes.
+MAX_FRAMES: int = 2880
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,7 +148,7 @@ def run_demo(
         building.total_height_m,
         params.traversability,
     )
-    graph = build_graph(grid, params.traversability)
+    graph = build_graph(grid, params.traversability, bare, bare_data)
     print(
         f"[cascade] traversability graph: {graph.n_nodes} cells, "
         f"{graph.n_edges} moves, occupancy {grid.occupancy_fraction():.3f}"
@@ -190,13 +192,17 @@ def run_demo(
 
     groups = index_geoms(model, data)
     camera = SwarmCamera(footprint_m=building.footprint_m)
-    overhead = plan_view(building.footprint_m, building.total_height_m)
+    overhead = plan_view(
+        building.footprint_m, building.total_height_m, aspect=width / height
+    )
     every = max(1, round(speed / (fps * params.collapse.timestep_s)))
 
     renderer = (
         mujoco.Renderer(model, height=height, width=width) if render else None
     )
-    frames: list[np.ndarray] = []
+    writer = (
+        VideoWriter(out_dir / f"seed{seed}_swarm.mp4", fps=fps) if render else None
+    )
     step = 0
 
     try:
@@ -206,9 +212,11 @@ def run_demo(
             step += 1
             swarm.observe(data, building.storey_height_m)
 
-            if renderer is None or step % every or len(frames) >= MAX_FRAMES:
+            if renderer is None or writer is None:
                 continue
-            frames.append(
+            if step % every or writer.frames >= MAX_FRAMES:
+                continue
+            writer.append(
                 _compose(
                     model,
                     data,
@@ -227,9 +235,11 @@ def run_demo(
             renderer.close()
 
     video = None
-    if frames:
-        video = write_video(frames, out_dir / f"seed{seed}_swarm.mp4", fps=fps)
-        print(f"[cascade] wrote {len(frames)} frames -> {video}")
+    frames = 0
+    if writer is not None:
+        frames = writer.frames
+        video = writer.close()
+        print(f"[cascade] wrote {frames} frames -> {video}")
 
     per_robot = tuple(
         (
@@ -247,7 +257,7 @@ def run_demo(
         planner_reachable=planner_reachable,
         per_robot=per_robot,
         steps=step,
-        frames=len(frames),
+        frames=frames,
         video=video,
     )
 
@@ -280,10 +290,14 @@ def _compose(
 ) -> np.ndarray:
     """Render the hero and plan panes and lay the HUD over them."""
     positions = swarm.positions(data)
-    ceiling = camera.ceiling(positions)
+    subject = swarm.focus()
+    subject_at = np.asarray(data.xpos[subject.body_id], dtype=np.float64)
+    ceiling = camera.ceiling(subject_at)
 
     hero_style(model, groups, ceiling)
-    hero = render_scene(model, data, camera.update(positions), renderer=renderer)
+    hero = render_scene(
+        model, data, camera.update(subject_at, positions), renderer=renderer
+    )
 
     plan_style(model, groups, ceiling)
     top = render_scene(model, data, overhead, renderer=renderer)
@@ -308,7 +322,7 @@ def _compose(
         subtitle=(
             f"seed {seed} | blast-collapsed 4-storey building | "
             f"{arrived}/{len(swarm.members)} arrived | "
-            "left: dollhouse cut at the swarm | right: plan, slabs removed"
+            f"left: dollhouse cut at {subject.name} | right: plan, slabs removed"
         ),
         readouts=readouts,
         elapsed_s=elapsed_s,

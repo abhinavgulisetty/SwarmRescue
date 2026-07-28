@@ -196,3 +196,62 @@ def test_member_mass_is_positive(params: BuildingParams) -> None:
         assert member.mass_kg > 0.0
         assert member.thermal_mass_j_per_k > 0.0
         assert member.yield_threshold_n > 0.0
+
+
+# --- stairs ------------------------------------------------------------------
+
+
+def _stair_extent(member) -> tuple[float, float]:
+    """World z of a member's lowest and highest corners."""
+    import numpy as np
+
+    half = np.array(member.half_extents, dtype=np.float64)
+    w, x, y, z = member.quat
+    rot = np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+        ]
+    )
+    reach = float(np.abs(rot[2, :]) @ half)
+    return member.center[2] - reach, member.center[2] + reach
+
+
+@pytest.mark.parametrize("seed", SEEDS)
+def test_ground_flights_do_not_dip_below_grade(
+    seed: int, params: BuildingParams
+) -> None:
+    """The one thing that made every staircase in the building unusable.
+
+    A flight authored with its top face meeting the floor puts its *underside*
+    a thickness below that floor.  Over a punched-out slab that is fine; on
+    solid ground the collapse resolves the penetration by ejecting the whole
+    flight upward, and it settles with its head a full thickness proud of the
+    landing it is supposed to meet -- an unclimbable ledge at the top of the
+    stairs, which is exactly where a robot is pitched up on its rear wheels.
+    """
+    _, structure = _built(seed, params)
+    for member in structure.members:
+        if member.kind is not MemberKind.STAIR or "_s0_" not in member.name:
+            continue
+        low, _ = _stair_extent(member)
+        assert low >= -EPS_M, f"{member.name} starts {-low:.3f} m below grade"
+
+
+@pytest.mark.parametrize("seed", SEEDS)
+def test_each_flight_meets_the_landing_it_serves(
+    seed: int, params: BuildingParams
+) -> None:
+    """A flight's top face and its landing's top face are the same height."""
+    _, structure = _built(seed, params)
+    by_name = {m.name: m for m in structure.members}
+    for name, member in by_name.items():
+        if "_f0" not in name or name.endswith("_threshold"):
+            continue
+        landing = by_name.get(name.rsplit("_f0", 1)[0] + "_landing")
+        if landing is None:
+            continue
+        _, flight_top = _stair_extent(member)
+        _, landing_top = _stair_extent(landing)
+        assert flight_top == pytest.approx(landing_top, abs=1e-6)

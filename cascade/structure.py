@@ -104,12 +104,18 @@ STAIR_THICKNESS_M: float = 0.16
 #: A flight is a tilted slab, so positioning its top face at floor level puts
 #: its body below that floor.  Above ground that is fine -- the slab is
 #: punched out over the stairwell and the flight hangs in the void.  At storey
-#: 0 the floor is solid ground, so the collapse pushes the flight back out and
-#: it settles presenting a `thickness * cos(pitch)` lip at its foot: a ~0.13 m
-#: step that a small ground robot cannot mount, sitting across the only route
-#: to every upper storey.  A real staircase has a bottom step here, so this
-#: models one -- shallow and thin, leaving a residual lip of about 0.05 m.
-STAIR_THRESHOLD_THICKNESS_M: float = 0.05
+#: 0 the floor is solid ground, so the flight's foot is trimmed back until its
+#: underside clears grade (see `_ground_trim`), which leaves the walking
+#: surface starting a small step up.  A real staircase has a bottom step here,
+#: so this models one: a shallow ramp meeting the flight's top face exactly,
+#: leaving only its own leading edge as a residual lip.
+#:
+#: Thin, and thinner than concrete would be: this is the one member modelled
+#: as a steel nosing plate rather than a cast section, because its leading
+#: edge is a kerb across the only route to every upper storey and its
+#: thickness *is* that kerb.  At 0.05 m the swarm caught on it; at 0.03 m the
+#: same robots drive over it without registering it.
+STAIR_THRESHOLD_THICKNESS_M: float = 0.03
 STAIR_THRESHOLD_RUN_M: float = 0.80
 #: Fraction of a stairwell's width taken by one flight of a switchback.
 STAIR_FLIGHT_WIDTH_FRACTION: float = 0.45
@@ -483,7 +489,7 @@ def _stairs(
     pitch = math.radians(STAIR_PITCH_DEG)
     half_rise = 0.5 * params.storey_height_m
     run = half_rise / math.tan(pitch)
-    flight_length = math.hypot(run, half_rise)
+    half_thickness = 0.5 * STAIR_THICKNESS_M
 
     for index, connector in enumerate(plan.stairwells()):
         rect = connector.rect
@@ -507,7 +513,22 @@ def _stairs(
 
         for leg, offset in enumerate(offsets):
             rising = leg == 0
-            mid_run = run_start + 0.5 * run
+            # The ground-storey flight is the only one whose underside meets
+            # solid ground rather than the void over a punched-out slab, and
+            # authored flush with the floor it dips `STAIR_THICKNESS_M *
+            # cos(pitch)` below grade.  The collapse resolves that penetration
+            # the only way it can -- by ejecting the whole flight upward -- and
+            # the flight settles with its head a full thickness proud of the
+            # landing it is supposed to meet.  That 0.2 m ledge at the *top* of
+            # the stairs is what actually stopped the swarm: every robot drove
+            # the flight cleanly and then hit a wall it could not mount, one
+            # cell short of the landing.  Trimming the sliver that dips below
+            # grade means there is nothing to eject, so the authored pose is
+            # the settled pose and both ends of the flight land where they are
+            # drawn.
+            trim = _ground_trim(pitch) if (rising and z_floor <= 0.0) else 0.0
+            foot_rise = trim * math.tan(pitch)
+
             # Place the flight by its *top face* -- the surface actually driven
             # on -- not by its centroid.  Putting the centroid at mid-rise
             # leaves the walking surface half a thickness high at both ends,
@@ -516,10 +537,25 @@ def _stairs(
             # every staircase on every storey.  The voxel graph never noticed,
             # because a 0.15 m rise is inside its step limit, so it went on
             # certifying routes that were physically blocked.
-            surface_mid = z_floor + (0.25 + 0.5 * leg) * params.storey_height_m
-            z_mid = surface_mid - 0.5 * STAIR_THICKNESS_M * math.cos(pitch)
-            # Tilt about the axis across the run; the second leg climbs back
-            # the other way, hence the sign flip.
+            if rising:
+                low = (run_start + trim, z_floor + foot_rise)
+                high = (run_start + run, z_floor + half_rise)
+            else:
+                # The second leg climbs back the other way, so its high end is
+                # the one at the low run coordinate.
+                low = (run_start, z_floor + params.storey_height_m)
+                high = (run_start + run, z_floor + half_rise)
+            mid_run = 0.5 * (low[0] + high[0])
+            mid_z = 0.5 * (low[1] + high[1])
+            flight_length = math.hypot(high[0] - low[0], high[1] - low[1])
+
+            # Step in from the top face to the centroid along the face normal.
+            # For a flight rising with the run coordinate the normal leans back
+            # down the run; for one falling with it, forward.
+            mid_run += half_thickness * math.sin(pitch) * (1.0 if rising else -1.0)
+            mid_z -= half_thickness * math.cos(pitch)
+
+            # Tilt about the axis across the run.
             #
             # The sign is negative for the ascending leg because R_y(theta)
             # maps the flight's long axis to (cos, 0, -sin): a *positive*
@@ -530,11 +566,11 @@ def _stairs(
             angle = -pitch if rising else pitch
             half = 0.5 * angle
             if along_x:
-                center = (mid_run, cy + offset, z_mid)
+                center = (mid_run, cy + offset, mid_z)
                 size = (flight_length, flight_width, STAIR_THICKNESS_M)
                 quat = (math.cos(half), 0.0, math.sin(half), 0.0)
             else:
-                center = (cx + offset, mid_run, z_mid)
+                center = (cx + offset, mid_run, mid_z)
                 size = (flight_width, flight_length, STAIR_THICKNESS_M)
                 quat = (math.cos(half), -math.sin(half), 0.0, 0.0)
 
@@ -550,23 +586,18 @@ def _stairs(
                 )
             )
 
-            # Only the ground-storey flight needs a bottom step: it is the one
-            # whose underside meets solid ground rather than the void over a
-            # punched-out slab.
-            if rising and z_floor <= 0.0:
-                lateral = cy + offset if along_x else cx + offset
-                run_low = mid_run - 0.5 * flight_length * math.cos(pitch) - (
-                    0.5 * STAIR_THICKNESS_M * math.sin(pitch)
-                )
+            # The trimmed foot leaves a step from the floor up to the flight,
+            # which is what the threshold ramp bridges.
+            if trim > 0.0:
                 out.append(
                     _stair_threshold(
                         name=f"stair_s{storey}_c{index}_f{leg}_threshold",
                         storey=storey,
                         along_x=along_x,
-                        run_low=run_low,
-                        lateral=lateral,
+                        head_run=low[0],
+                        head_rise=low[1],
+                        lateral=cy + offset if along_x else cx + offset,
                         width=flight_width,
-                        pitch=pitch,
                     )
                 )
 
@@ -611,37 +642,55 @@ def _stairs(
     return out
 
 
+def _ground_trim(pitch: float) -> float:
+    """Run to cut off a flight's foot so its underside clears grade.
+
+    A flight is a slab of thickness `t` tilted by `pitch`, so its underside
+    runs `t / cos(pitch)` vertically below its top face.  Authored with the top
+    face meeting the floor at the foot, the underside is that far *under* the
+    floor, and it climbs back to grade after this much run.
+    """
+    import math
+
+    return STAIR_THICKNESS_M * math.cos(pitch) ** 2 / math.sin(pitch)
+
+
 def _stair_threshold(
     *,
     name: str,
     storey: int,
     along_x: bool,
-    run_low: float,
+    head_run: float,
+    head_rise: float,
     lateral: float,
     width: float,
-    pitch: float,
 ) -> Member:
-    """A shallow ramp from floor level up to the foot of a stair flight.
+    """A shallow ramp from the floor up to the trimmed foot of a flight.
 
-    The flight settles on the ground presenting a lip of
-    `STAIR_THICKNESS_M * cos(pitch)`.  This climbs most of that over
-    `STAIR_THRESHOLD_RUN_M`, leaving only its own thickness as a residual
-    step, which is a fraction of a wheel radius rather than twice one.
+    Its top face meets the flight's exactly, so the junction is a change of
+    grade rather than a step.  What it cannot avoid is its own thickness at
+    the bottom: the ramp has to sit *on* the ground, so its leading edge is a
+    lip of `STAIR_THRESHOLD_THICKNESS_M * cos(angle)`.  That is the one step
+    on the way up the building, and at a third of a wheel radius it is the
+    kind a real platform mounts without noticing.
     """
     import math
 
-    lip = STAIR_THICKNESS_M * math.cos(pitch)
-    residual = STAIR_THRESHOLD_THICKNESS_M * math.cos(pitch)
-    rise = max(lip - residual, 0.0)
-    angle = math.atan2(rise, STAIR_THRESHOLD_RUN_M)
-    length = math.hypot(STAIR_THRESHOLD_RUN_M, rise)
+    thickness = STAIR_THRESHOLD_THICKNESS_M
+    run = STAIR_THRESHOLD_RUN_M
+    # The ramp's foot height is its own thickness measured vertically, which
+    # depends on the angle it is asking for.  Two passes converge to well
+    # inside a millimetre at these gradients.
+    angle = 0.0
+    for _ in range(3):
+        angle = math.atan2(max(head_rise - thickness * math.cos(angle), 0.0), run)
+    foot_rise = thickness * math.cos(angle)
+    length = math.hypot(run, head_rise - foot_rise)
 
     # Sit the ramp *on* the ground: its lowest corner at z = 0, so the collapse
     # has nothing to push out and the authored pose is the settled pose.
-    cz = 0.5 * length * math.sin(angle) + 0.5 * STAIR_THRESHOLD_THICKNESS_M * math.cos(
-        angle
-    )
-    mid = run_low - 0.5 * STAIR_THRESHOLD_RUN_M
+    mid = head_run - 0.5 * run + 0.5 * thickness * math.sin(angle)
+    cz = 0.5 * (foot_rise + head_rise) - 0.5 * thickness * math.cos(angle)
     half = -0.5 * angle
     if along_x:
         center = (mid, lateral, cz)

@@ -21,6 +21,11 @@ import numpy as np
 #: outside it, short enough not to foul the storey above.
 BEACON_HEIGHT_M: float = 1.10
 
+#: Radius of the identification disc on top of the beacon, metres.  Sized for
+#: the top-down pane: at 0.35 m it is about eight pixels across from the plan
+#: camera's 28 m, which is the smallest a colour reads reliably at.
+MARKER_RADIUS_M: float = 0.35
+
 #: Collision masks.  Two geoms interact when `contype & conaffinity` is
 #: non-zero in either direction, so putting robots on their own contype bit
 #: while leaving their affinity on the world's bit means robots collide with
@@ -46,11 +51,13 @@ class RobotSpec:
     body_width_m: float = 0.24
     body_height_m: float = 0.10
     #: Wheel radius, metres.  Sized against the tallest unavoidable step on
-    #: the route -- the lip at the foot of a stair flight -- rather than
-    #: chosen for looks.  A rigid four-wheeler mounts a step of roughly its
-    #: wheel radius and no more, and at 0.075 m it could not get onto the
-    #: stairs at all.
-    wheel_radius_m: float = 0.10
+    #: the route -- the lip at the foot of a stair flight, and the few
+    #: centimetres a landing settles by -- rather than chosen for looks.  A
+    #: rigid four-wheeler mounts a step of roughly its wheel radius driven
+    #: square at it and rather less at an angle, so this is kept at or above
+    #: `TraversabilityParams.max_step_height_m`: any less and the planner is
+    #: certifying moves the chassis cannot make.
+    wheel_radius_m: float = 0.13
     wheel_width_m: float = 0.045
     chassis_density: float = 700.0
     #: Wheel angular velocity limit, rad/s.
@@ -129,6 +136,24 @@ def build_robot(
         contype="0",
         conaffinity="0",
     )
+    # A disc on top of the beacon.  The mast and the beacon are both readable
+    # from the side and both vanish from directly overhead, which is precisely
+    # the view the plan pane takes -- a 0.34 m robot seen from 28 m up is two
+    # pixels, and the pane whose whole job is to answer "where is the swarm"
+    # answered it with four dots you had to hunt for.  Seen from above this is
+    # a 0.7 m disc in the robot's own colour.
+    ET.SubElement(
+        body,
+        "geom",
+        name=f"{spec.name}_marker",
+        type="cylinder",
+        size=f"{MARKER_RADIUS_M} 0.012",
+        pos=f"0 0 {half_h + BEACON_HEIGHT_M}",
+        density="1",
+        rgba=f"{spec.livery[0]} {spec.livery[1]} {spec.livery[2]} 0.85",
+        contype="0",
+        conaffinity="0",
+    )
 
     actuators: list[ET.Element] = []
     wheel_x = half_l * 0.72
@@ -200,13 +225,13 @@ class WaypointDriver:
     spec: RobotSpec
     waypoints: np.ndarray
     arrive_radius_m: float = 0.40
-    #: Wheel speed on a straight run, rad/s.  With 0.075 m wheels this is
-    #: about 0.45 m/s.  The first version cruised at 14 rad/s -- 1.05 m/s, a
+    #: Wheel speed on a straight run, rad/s.  With 0.13 m wheels this is
+    #: about 0.5 m/s.  The first version cruised at 14 rad/s -- 1.05 m/s, a
     #: brisk walk -- which is far too fast to corner a 0.34 m chassis through a
     #: 0.9 m doorway that configuration-space planning leaves roughly 0.2 m of
     #: margin in.  It overshot every turn into the wall past it, rode up the
     #: skirting, and hung there.  The route was never the problem.
-    cruise_rad_s: float = 6.0
+    cruise_rad_s: float = 4.0
     turn_gain: float = 7.0
     index: int = 0
     #: Set when the robot has stopped making progress toward its waypoint.
@@ -215,14 +240,28 @@ class WaypointDriver:
     #: swarm released simultaneously piles into it and wedges, and every robot
     #: behind the blockage is scored as stalled through no fault of its own.
     start_delay_steps: int = 0
-    #: Steps without advancing before declaring a stall.
-    stall_patience: int = 9000
+    #: Steps without advancing before declaring a stall.  Long -- 40 s of
+    #: simulated time -- because with route re-acquisition a robot that has
+    #: fallen off a staircase can genuinely drive back round to it, and the
+    #: previous 18 s gave up on two robots that were within two waypoints of
+    #: their goals.
+    stall_patience: int = 12_000
     #: Steps without advancing before attempting to reverse out.
     recovery_after: int = 900
     #: Duration of one reverse-and-turn attempt.
     recovery_steps: int = 260
     #: Waypoints ahead to search when re-projecting onto the path.
     search_window: int = 12
+    #: ...and behind, so that overshooting a turn is recoverable.  Short, so a
+    #: switchback's other leg -- which passes within a metre in plan -- cannot
+    #: capture the projection and send the robot back down the stairs.
+    search_back: int = 6
+    #: Distance from the projected waypoint past which the robot is treated as
+    #: off its route entirely and re-acquires, metres.
+    reacquire_m: float = 1.5
+    #: How far back along the route re-acquisition may reach, in waypoints.
+    #: About ten metres of route -- one flight of stairs and its landing.
+    reacquire_back: int = 40
     #: Waypoints ahead of the projection to aim at.  Short: at a quarter-metre
     #: lattice, aiming 3 cells ahead lets the robot cut the inside of a corner
     #: into the wall it is turning around.
@@ -250,6 +289,14 @@ class WaypointDriver:
             self._drive(model, data, 0.0, 0.0)
             self.index = 0
             return
+        # Arriving has to latch.  The projection below runs before the arrival
+        # test, so a robot parked on its goal re-projected onto the last few
+        # waypoints, found itself "not there yet", and set off again -- one
+        # robot reached the roof, turned round, and drove back down two
+        # storeys before the run ended.
+        if self.finished or self.stalled:
+            self._drive(model, data, 0.0, 0.0)
+            return
         if self._steps <= self.start_delay_steps:
             self._drive(model, data, 0.0, 0.0)
             return
@@ -268,18 +315,47 @@ class WaypointDriver:
         # corridor it came from.  Projecting onto the nearest point *ahead* on
         # the path and aiming a fixed distance beyond it cannot get stuck that
         # way.
-        offset = self.waypoints - position
+        # Waypoints are surface heights; `position` is the chassis centre, a
+        # ride height above the surface.  Comparing them directly hands every
+        # waypoint a constant height error, which the weight below multiplies
+        # into a large one, and on a staircase that is enough to pin the
+        # projection to a waypoint the robot has already passed.
+        contact = position - np.array([0.0, 0.0, self.spec.ride_height_m])
+        offset = self.waypoints - contact
         distance = np.sqrt(
             offset[:, 0] ** 2
             + offset[:, 1] ** 2
             + (_HEIGHT_WEIGHT * offset[:, 2]) ** 2
         )
+        # The floor applies to both searches.  Bounding only the re-acquisition
+        # leaves the short backward window free to walk the projection down the
+        # route six waypoints at a time, which arrives at the same place a few
+        # seconds later.
+        floor = max(0, self._best_index - self.reacquire_back)
         window = slice(
-            self.index, min(self.index + self.search_window, len(distance))
+            max(floor, self.index - self.search_back),
+            min(self.index + self.search_window, len(distance)),
         )
         local = distance[window]
         if local.size:
-            self.index = int(self.index + int(np.argmin(local)))
+            self.index = int(window.start + int(np.argmin(local)))
+        # Lost.  A recovery manoeuvre can leave the robot metres from the
+        # route -- backing off a stair ramp puts it under the flight it was
+        # trying to climb -- and a projection that only ever moves forward has
+        # no way back from that: it grinds toward a waypoint it can no longer
+        # see for the rest of the run.  Re-acquiring the nearest point on the
+        # route is what a teleoperator would do, and it is what turns a snag
+        # into a detour instead of the end of the run.
+        #
+        # Bounded, though, and the bound is the whole difficulty.  A staircase
+        # stacks its own waypoints four storeys deep in plan, so a robot that
+        # slips near the roof is a metre from waypoints belonging to every
+        # flight below it.  Unbounded, this re-acquisition sent two robots
+        # that were three waypoints from the roof back down to the second
+        # floor to start again.  Searching back a fixed distance along the
+        # route recovers from a fall without ever undoing the climb.
+        if distance[self.index] > self.reacquire_m:
+            self.index = floor + int(np.argmin(distance[floor:]))
 
         if (
             self.index >= len(self.waypoints) - 1
@@ -289,32 +365,40 @@ class WaypointDriver:
             self._drive(model, data, 0.0, 0.0)
             return
 
+        # One counter, reset only by real progress.  An earlier version also
+        # zeroed it whenever a recovery began, which made the "no progress for
+        # `stall_patience` steps" test unreachable and left a compound
+        # condition that latched `stalled` on the first recovery attempt after
+        # the patience expired -- so robots that backed out of a snag,
+        # recovered and drove on for another twenty metres were still reported
+        # as stalled, and the run stopped as soon as every robot had been
+        # tarred once.
         if self.index > self._best_index:
             self._best_index = self.index
             self._since_progress = 0
         else:
             self._since_progress += 1
 
+        if self._since_progress > self.stall_patience:
+            self.stalled = True
+            self._drive(model, data, 0.0, 0.0)
+            return
+
         # Wedged: reverse while turning, then try again.  A skid-steer platform
         # on rubble gets caught on debris that it clears easily from a slightly
         # different approach, and without this the run ends at the first such
-        # snag even though the route is perfectly drivable.
+        # snag even though the route is perfectly drivable.  Attempts alternate
+        # direction and repeat for as long as the patience lasts.
         if self._recovery_left > 0:
             self._recovery_left -= 1
             back = -0.45 * self.cruise_rad_s
             swing = 0.5 * self.turn_gain * self._recovery_turn
             self._drive(model, data, back - swing, back + swing)
             return
-        if self._since_progress >= self.recovery_after:
+        if self._since_progress and self._since_progress % self.recovery_after == 0:
             self._recovery_left = self.recovery_steps
             self._recovery_turn = -self._recovery_turn
-            self._since_progress = 0
-            driving_for = self._steps - self.start_delay_steps
-            if driving_for > self.stall_patience and self._best_index <= self.index:
-                self.stalled = True
             return
-        if self._since_progress > self.stall_patience:
-            self.stalled = True
 
         aim = min(self.index + self.lookahead, len(self.waypoints) - 1)
         delta = self.waypoints[aim] - position

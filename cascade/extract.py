@@ -36,6 +36,30 @@ _HORIZONTAL_TOL: float = 0.15
 #: obstacles, and so are never grown into configuration-space obstacles.
 _WALKABLE_PREFIX: str = "g_stair_"
 
+#: Straight down, for the surface probes.
+_DOWN: np.ndarray = np.array([0.0, 0.0, -1.0], dtype=np.float64)
+
+#: What a full-height step adds to the cost of a move, in units of the cost of
+#: a flat one.  Deliberately steep -- a detour has to be sixty cells long
+#: before mounting a full step wins -- because the planner's shortcuts are
+#: exactly the manoeuvres the platform cannot execute.  With this at 25 the
+#: route to the stairs flipped between climbing the side of the entrance ramp
+#: and driving round to its foot depending on which was a cell shorter, and
+#: three robots in four wedged themselves on the side.
+_STEP_PENALTY: float = 60.0
+
+#: Where to check that the ground still reaches, in units of the robot radius,
+#: around a cell the robot's centre might occupy.  Four points rather than a
+#: ring: the chassis is roughly square and the failure being ruled out -- one
+#: side of the robot hanging over the edge of a stair flight -- shows up on an
+#: axis long before it shows up on a diagonal.
+_FOOTPRINT_PROBES: tuple[tuple[float, float], ...] = (
+    (1.0, 0.0),
+    (-1.0, 0.0),
+    (0.0, 1.0),
+    (0.0, -1.0),
+)
+
 
 @dataclass(frozen=True, slots=True)
 class VoxelGrid:
@@ -305,9 +329,20 @@ def height_map(grid: VoxelGrid) -> np.ndarray:
 
 
 def build_graph(
-    grid: VoxelGrid, params: TraversabilityParams
+    grid: VoxelGrid,
+    params: TraversabilityParams,
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
 ) -> TraversabilityGraph:
-    """Reduce occupancy to standable cells and the moves between them."""
+    """Reduce occupancy to standable cells and the moves between them.
+
+    The scene comes back in as well as the grid, because the lattice on its own
+    cannot answer the question that decides whether a route is drivable.  A
+    0.1 m height lattice sees a 34 degree ramp as a 0.17 m step per cell and a
+    0.17 m cliff as the same thing, so any threshold that lets the swarm up a
+    staircase also lets it plan straight over a ledge.  Heights and the
+    discontinuity between them are measured against the real geometry instead.
+    """
     cells, surface = _standable_cells(grid, params)
     if cells.shape[0] == 0:
         empty_i = np.zeros((0, 2), dtype=np.int32)
@@ -319,7 +354,10 @@ def build_graph(
             edge_cost=np.zeros(0, dtype=np.float64),
         )
 
-    edges, costs = _connect(cells, surface, grid, params)
+    surface, drop = _probe_surfaces(grid, cells, surface, params, model, data)
+    supported = np.isfinite(drop).all(axis=1)
+    cells, surface, drop = cells[supported], surface[supported], drop[supported]
+    edges, costs = _connect(cells, surface, drop, grid, params, model, data)
     return TraversabilityGraph(
         grid=grid,
         cells=cells,
@@ -370,33 +408,143 @@ def _standable_cells(
     return idx.astype(np.int32), surface.astype(np.float64)
 
 
+def _drop(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    x: float,
+    y: float,
+    ceiling: float,
+    span: float,
+) -> float | None:
+    """Height of the first surface below `(x, y, ceiling)`, within `span`."""
+    hit = np.zeros(1, dtype=np.int32)
+    distance = mujoco.mj_ray(
+        model,
+        data,
+        np.array([x, y, ceiling], dtype=np.float64),
+        _DOWN,
+        None,
+        1,  # include static geoms: the ground plane and the standing frame
+        -1,
+        hit,
+    )
+    if distance < 0.0 or distance > span:
+        return None
+    return ceiling - float(distance)
+
+
+def _probe_surfaces(
+    grid: VoxelGrid,
+    cells: np.ndarray,
+    lattice_z: np.ndarray,
+    params: TraversabilityParams,
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Real surface height under each cell, and how far the ground falls away.
+
+    Two things the lattice cannot supply.
+
+    The height, because the lattice rounds to 0.1 m, which is enough to put a
+    waypoint 0.1 m inside a stair tread or 0.1 m above it -- and because
+    rounding destroys the very signal `_connect` needs: on a 0.1 m lattice a
+    smooth ramp and a flight of ledges are the same sequence of numbers.
+
+    The drops, because occupancy answers "is there material under this point"
+    and a robot is not a point.  A cell along the edge of a stair flight has
+    material under its centre and nothing under half the chassis, and every
+    robot the planner sent up such a cell dropped a wheel over the side and
+    hung there.  Configuration space already keeps the chassis clear of what
+    it would *hit*; this measures what holds it up.
+
+    Returns the depths in `_FOOTPRINT_PROBES` order, as positive distances
+    below the cell's own surface, and infinite where there is no ground within
+    reach at all.  What counts as too deep is left to `_connect`, because it
+    depends on which way the robot is going: the drop off the downhill end of
+    a ramp is the ramp, and the same drop off its side is a fall.
+    """
+    ox, oy, oz = grid.origin
+    cx, cy, cz = grid.cell
+    radius = params.robot_radius_m
+    # Deepest drop still worth measuring: a full legal grade over the probe
+    # distance, plus a full step.  Nothing beyond that is drivable in any
+    # direction, so the cell is discarded outright.
+    reach = radius * math.tan(math.radians(params.max_slope_deg))
+    reach += params.max_step_height_m
+    height = np.array(lattice_z, dtype=np.float64, copy=True)
+    drop = np.zeros((cells.shape[0], len(_FOOTPRINT_PROBES)), dtype=np.float64)
+
+    for node in range(cells.shape[0]):
+        i, j, k = (int(v) for v in cells[node])
+        x = ox + (i + 0.5) * cx
+        y = oy + (j + 0.5) * cy
+        # Start one level up -- the cell is known to be clear there -- and
+        # allow the ray to fall through the level whose material supports it.
+        found = _drop(model, data, x, y, oz + (k + 2) * cz, 2.05 * cz)
+        if found is not None:
+            height[node] = found
+        under = height[node]
+
+        for probe, (dx, dy) in enumerate(_FOOTPRINT_PROBES):
+            # Cast from above, because the uphill side of a ramp is *higher*
+            # than the cell centre and a ray launched level with it would sail
+            # straight under the ramp and report the void beneath instead.
+            found = _drop(
+                model,
+                data,
+                x + dx * radius,
+                y + dy * radius,
+                under + reach + 0.5 * cz,
+                2.0 * reach + cz,
+            )
+            drop[node, probe] = math.inf if found is None else under - found
+    return height, drop
+
+
 def _connect(
     cells: np.ndarray,
     surface: np.ndarray,
+    drop: np.ndarray,
     grid: VoxelGrid,
     params: TraversabilityParams,
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Join horizontally adjacent standable cells the robot can step between."""
+    """Join horizontally adjacent standable cells the robot can drive between.
+
+    Every move is split into the part the robot rolls up -- a grade -- and the
+    part it has to *mount* -- a step -- because the platform's limits on the
+    two differ by a factor of two and they are not interchangeable.  The split
+    comes from sampling the surface halfway between the cells: on a ramp the
+    midpoint sits halfway up, and on a ledge it sits at one end or the other.
+
+    Without the split the graph cannot express a staircase at all.  A 34
+    degree flight rises 0.17 m per 0.25 m cell, so any rise threshold generous
+    enough to climb it also admits a 0.17 m vertical drop -- and the planner
+    used that to route four robots up the *side* of a stair threshold instead
+    of along it.  All four wedged against a 0.13 m lateral edge, two metres
+    from an entrance ramp that would have taken them straight up.
+    """
     lookup: dict[tuple[int, int], list[int]] = {}
     for node, (i, j, _) in enumerate(cells):
         lookup.setdefault((int(i), int(j)), []).append(node)
 
-    horizontal = grid.cell[0]
-    max_slope = math.tan(math.radians(params.max_slope_deg))
-    # Over one cell of run, a traversable grade rises `run * tan(max_slope)`.
-    # The step-height cap is about discontinuities *within* a cell, which this
-    # resolution cannot see, so it must not also veto a graded slope: a 32
-    # degree stair ramp rises 0.25 m per 0.4 m cell, and testing that against
-    # the 0.18 m step limit disconnected every staircase in the building and
-    # left the whole swarm stuck on the ground floor.
-    # Rasterizing a slope onto discrete levels quantizes it: a true 32 degree
-    # ramp rises 0.25 m per 0.4 m cell but lands on the 0.1 m lattice as an
-    # alternating 0.2 / 0.3 m staircase.  Without an allowance for that, the
-    # 0.3 m rises are rejected and every staircase is disconnected.  Half a
-    # level is the tolerance; the cost is that the test admits slopes up to
-    # ~40 degrees in the worst case, which is the price of the resolution.
-    quantization = 0.5 * grid.cell[2]
-    max_rise = max(params.max_step_height_m, horizontal * max_slope) + quantization
+    ox, oy, _ = grid.origin
+    cx, cy, cz = grid.cell
+    grade_cap = cx * math.tan(math.radians(params.max_slope_deg))
+    step_cap = params.max_step_height_m
+    # Nothing further apart in height than a full grade plus a full step can be
+    # either, so this prunes the candidate pairs before any ray is cast.
+    reach = grade_cap + step_cap
+
+    # Ground may fall away this far beside the robot before a wheel is in the
+    # air.  Tight, and much tighter than what is allowed *along* the direction
+    # of travel, because a drop ahead is a slope the robot descends and a drop
+    # beside it is one it topples into.  Driving the length of the stair
+    # entrance ramp with the right-hand wheels over its 0.13 m edge is what
+    # stopped three robots in four; nothing about that drop is visible in the
+    # heights of the cells the route passes through.
+    lateral_cap = 0.5 * step_cap
 
     edges: list[tuple[int, int]] = []
     costs: list[float] = []
@@ -405,15 +553,37 @@ def _connect(
             there = lookup.get((i + di, j + dj))
             if not there:
                 continue
+            # `_FOOTPRINT_PROBES` is ordered +x, -x, +y, -y, so the pair to
+            # test is the one across the direction of travel.
+            across = slice(2, 4) if di else slice(0, 2)
+            mid_x = ox + (i + 0.5 * di + 0.5) * cx
+            mid_y = oy + (j + 0.5 * dj + 0.5) * cy
             for a in here:
                 for b in there:
-                    rise = abs(float(surface[a] - surface[b]))
-                    if rise > max_rise:
+                    if max(drop[a, across].max(), drop[b, across].max()) > lateral_cap:
                         continue
-                    # Difficulty feeds the LMDP's passive dynamics later: a
-                    # steep step is passable but should not look free.
+                    za, zb = float(surface[a]), float(surface[b])
+                    rise = abs(za - zb)
+                    if rise > reach:
+                        continue
+                    step = _step_between(model, data, mid_x, mid_y, za, zb, cz)
+                    if step > step_cap:
+                        continue
+                    if rise - step > grade_cap:
+                        continue
+                    # Difficulty feeds the LMDP's passive dynamics later, and
+                    # in the meantime it is what stops the planner cutting
+                    # corners.  A step is charged far more per metre than a
+                    # grade because that is where a wheeled platform actually
+                    # fails: given the choice between mounting the side of a
+                    # stair ramp and driving four metres round to its foot,
+                    # the four metres are the cheaper mistake to make.
                     edges.append((a, b))
-                    costs.append(1.0 + 3.0 * rise / max(max_rise, 1e-9))
+                    costs.append(
+                        1.0
+                        + 3.0 * max(rise - step, 0.0) / grade_cap
+                        + _STEP_PENALTY * step / step_cap
+                    )
 
     if not edges:
         return np.zeros((0, 2), dtype=np.int32), np.zeros(0, dtype=np.float64)
@@ -421,6 +591,36 @@ def _connect(
         np.asarray(edges, dtype=np.int32),
         np.asarray(costs, dtype=np.float64),
     )
+
+
+def _step_between(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    x: float,
+    y: float,
+    za: float,
+    zb: float,
+    cell_z: float,
+) -> float:
+    """The discontinuous part of the rise from one cell's surface to another.
+
+    Zero for a constant grade, the full rise for a clean ledge, and something
+    in between for anything else -- read off a single sample of the surface
+    halfway between the two cells, compared against the straight line joining
+    them.
+
+    A sample that comes back *below* both surfaces is a notch rather than a
+    ledge: the two members do not quite meet, which is what a settled stair
+    flight and its landing look like a few centimetres apart.  Both ends are
+    standable and adjacent cells are one 0.25 m cell apart, so the void can be
+    no wider than that and the chassis bridges it; what is left to negotiate
+    is the rise between the two ends, and that is what gets charged.
+    """
+    high, low = max(za, zb), min(za, zb)
+    found = _drop(model, data, x, y, high + 0.5 * cell_z, high - low + cell_z)
+    if found is None or found < low:
+        return high - low
+    return 2.0 * abs(found - 0.5 * (za + zb))
 
 
 # --- queries -----------------------------------------------------------------

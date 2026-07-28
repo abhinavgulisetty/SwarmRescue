@@ -199,14 +199,18 @@ class CollapseParams:
 class TraversabilityParams:
     """Stage 4 -- what the robot can actually drive over.
 
-    These numbers describe a **tracked** micro-robot, not a wheeled one, and
-    that is a deliberate spec decision rather than a tuned constant.  The
-    building's stairs are pitched at 32 degrees; a wheeled platform limited to
-    ~22 degrees and a 0.12 m step cannot use them, so the traversability graph
-    would come out disconnected between storeys and the mission would be
-    impossible by construction.  Tracked rescue platforms in this size class
-    routinely climb 35 degrees and mount a standard stair riser, so that is
-    what the swarm is.
+    The slope limit describes a **tracked** micro-robot, not a wheeled one,
+    and that is a deliberate spec decision rather than a tuned constant.  The
+    building's stairs are pitched at 34 degrees; a platform limited to ~22
+    degrees cannot use them, so the traversability graph would come out
+    disconnected between storeys and the mission would be impossible by
+    construction.  Tracked rescue platforms in this size class routinely climb
+    35 degrees, so that is what the swarm is.
+
+    The step limit is the opposite kind of number: it is measured off the
+    Phase 0 chassis, which is a four-wheel skid-steer and not a tracked one.
+    Where the two disagree the graph takes the pessimistic value, because a
+    route the demo robot cannot drive is worse than no route.
     """
 
     #: Horizontal raster resolution.  Finer than the 0.4 m the proposal quotes
@@ -218,8 +222,16 @@ class TraversabilityParams:
     #: Vertical raster resolution.  Much finer than the horizontal cell,
     #: because a 0.4 m voxel cannot resolve whether a 0.18 m step is climbable.
     voxel_height_m: float = 0.10
-    #: Maximum climbable vertical discontinuity between adjacent cells.
-    max_step_height_m: float = 0.18
+    #: Maximum vertical *discontinuity* the platform can mount, metres.
+    #:
+    #: A step, not a grade: the two are measured separately (see
+    #: `extract._step_between`) because the platform's limits on them are not
+    #: the same number and conflating them is what made the graph unusable.
+    #: A rigid four-wheeler mounts roughly its wheel radius driven square at a
+    #: ledge and rather less at an angle, so this is set just above the wheel
+    #: radius to cover the residual lip at the foot of a stair flight and the
+    #: few centimetres a landing settles by, and no more.
+    max_step_height_m: float = 0.13
     #: Maximum traversable slope.
     max_slope_deg: float = 35.0
     #: A gap narrower than this cannot be squeezed through.
@@ -241,6 +253,7 @@ class TraversabilityParams:
     def __post_init__(self) -> None:
         _require(self.voxel_size_m > 0.0, "voxel_size_m must be positive")
         _require(self.voxel_height_m > 0.0, "voxel_height_m must be positive")
+        _require(self.max_step_height_m > 0.0, "max_step_height_m must be positive")
         _require(0.0 < self.max_slope_deg < 90.0, "max_slope_deg must be in (0, 90)")
         _require(self.min_clearance_m > 0.0, "min_clearance_m must be positive")
         _require(self.robot_radius_m > 0.0, "robot_radius_m must be positive")
