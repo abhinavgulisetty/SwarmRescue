@@ -18,6 +18,7 @@ import hashlib
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 import mujoco
 import numpy as np
@@ -65,9 +66,41 @@ class CollapseResult:
         )
 
 
+#: MJCF elements that say how the model *looks* rather than how it behaves.
+_PRESENTATION_TAGS: frozenset[str] = frozenset({"visual", "asset", "light"})
+#: ...and the attributes, which hang off geoms that are otherwise physical.
+_PRESENTATION_ATTRS: frozenset[str] = frozenset({"material", "rgba"})
+
+
+def _physics_only(xml: str) -> str:
+    """Strip everything from `xml` that cannot change how the model moves."""
+    root = ET.fromstring(xml)
+
+    def strip(element: ET.Element) -> None:
+        for child in list(element):
+            if child.tag in _PRESENTATION_TAGS:
+                element.remove(child)
+                continue
+            for attr in _PRESENTATION_ATTRS:
+                child.attrib.pop(attr, None)
+            strip(child)
+
+    strip(root)
+    return ET.tostring(root, encoding="unicode")
+
+
 def model_hash(xml: str) -> str:
-    """Stable digest of the model, used as part of the cache key."""
-    return hashlib.sha256(xml.encode("utf-8")).hexdigest()[:16]
+    """Stable digest of the model's *physics*, used as part of the cache key.
+
+    Hashing the raw XML is the obvious thing and it is wrong.  Colours, lights,
+    and the skybox all live in the same document as the mass properties, so
+    under a whole-document digest changing the shade of a wall discards the
+    cached rubble and buys a two-and-a-half-minute re-simulation of a collapse
+    that is bit-for-bit the one already on disk.  That is enough friction to
+    make the presentation layer effectively un-iterable, which is how it ended
+    up looking the way it did.
+    """
+    return hashlib.sha256(_physics_only(xml).encode("utf-8")).hexdigest()[:16]
 
 
 # --- instrumentation ---------------------------------------------------------

@@ -36,7 +36,7 @@ def _world(seed: int):
     params = CascadeParams()
     plan = build_floorplan(seed, params.building)
     structure = build_structure(plan)
-    model = mujoco.MjModel.from_xml_string(to_mjcf(structure, plan))
+    model = mujoco.MjModel.from_xml_string(to_mjcf(structure))
     data = mujoco.MjData(model)
     mujoco.mj_forward(model, data)
     grid = rasterize(

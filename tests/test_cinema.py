@@ -15,22 +15,26 @@ import pytest
 from cascade.cinema import (
     PLAN_WALL_ALPHA,
     WALL_ALPHA,
-    RobotReadout,
+    PathTrace,
     SwarmCamera,
-    draw_hud,
+    Trails,
+    draw_paths,
     hero_style,
     index_geoms,
     plan_style,
-    stack_panes,
+    plan_view,
 )
 
-# A slab wide in x and y but thin in z, high up; a tall wall; a column; and a
-# robot.  The slab is the shape that broke the dollhouse cut.
+# A slab wide in x and y but thin in z, high up; a tall wall; a column; a wall
+# on the storey above; and a robot.  The slab is the shape that broke the
+# dollhouse cut; the upper wall is the shape that made the plan pane
+# unreadable.
 _SCENE = """
 <mujoco>
   <worldbody>
     <geom name="g_slab_s1_b0_0" type="box" size="4 3 0.1" pos="4 3 3.0"/>
     <geom name="g_wall_s0_r0_x" type="box" size="0.075 2 1.2" pos="2 2 1.2"/>
+    <geom name="g_wall_s1_r0_x" type="box" size="0.075 2 1.4" pos="3 2 4.5"/>
     <geom name="g_col_s0_n0" type="box" size="0.175 0.175 1.5" pos="1 1 1.5"/>
     <body name="robot0" pos="1 1 0.1">
       <freejoint name="robot0_root"/>
@@ -61,12 +65,16 @@ def test_geoms_are_classified_by_member_kind(scene) -> None:
         for n in (
             "g_slab_s1_b0_0",
             "g_wall_s0_r0_x",
+            "g_wall_s1_r0_x",
             "g_col_s0_n0",
             "robot0_chassis",
         )
     }
     assert [names[int(g)] for g in groups.slabs] == ["g_slab_s1_b0_0"]
-    assert [names[int(g)] for g in groups.walls] == ["g_wall_s0_r0_x"]
+    assert sorted(names[int(g)] for g in groups.walls) == [
+        "g_wall_s0_r0_x",
+        "g_wall_s1_r0_x",
+    ]
     assert [names[int(g)] for g in groups.frame] == ["g_col_s0_n0"]
     assert [names[int(g)] for g in groups.robots] == ["robot0_chassis"]
 
@@ -98,9 +106,38 @@ def test_hero_style_keeps_a_high_cut_intact(scene) -> None:
 
 def test_plan_style_removes_every_slab(scene) -> None:
     model, _, groups = scene
-    plan_style(model, groups, ceiling_z=50.0)
+    plan_style(model, groups, floor_z=0.0, ceiling_z=50.0)
     assert _alpha(model, "g_slab_s1_b0_0") == pytest.approx(0.0)
     assert _alpha(model, "g_wall_s0_r0_x") == pytest.approx(PLAN_WALL_ALPHA)
+
+
+def test_plan_style_shows_one_storey_only(scene) -> None:
+    """A plan of four floors at once is not a plan of anything.
+
+    Cutting from above alone left every storey below the subject in shot, so
+    watching a robot on the top floor meant looking at four sets of partitions
+    stacked in projection with the robot lost somewhere inside.
+    """
+    model, _, groups = scene
+    plan_style(model, groups, floor_z=0.2, ceiling_z=1.95)
+    assert _alpha(model, "g_wall_s0_r0_x") == pytest.approx(PLAN_WALL_ALPHA)
+    assert _alpha(model, "g_wall_s1_r0_x") == pytest.approx(0.0)
+
+
+def test_plan_style_hides_the_storey_below(scene) -> None:
+    """The slice must not reach back down through this storey's floor."""
+    model, _, groups = scene
+    plan_style(model, groups, floor_z=3.2, ceiling_z=4.95)
+    assert _alpha(model, "g_wall_s1_r0_x") == pytest.approx(PLAN_WALL_ALPHA)
+    assert _alpha(model, "g_wall_s0_r0_x") == pytest.approx(0.0)
+
+
+def test_plan_view_frames_the_storey_it_is_of(scene) -> None:
+    """Aimed at the slice, so the plan is one size whichever floor it shows."""
+    ground = plan_view((24.0, 18.0), floor_z=0.0)
+    roof = plan_view((24.0, 18.0), floor_z=11.2)
+    assert roof.lookat[2] - ground.lookat[2] == pytest.approx(11.2)
+    assert roof.distance == pytest.approx(ground.distance)
 
 
 def test_styling_never_hides_a_robot(scene) -> None:
@@ -108,7 +145,7 @@ def test_styling_never_hides_a_robot(scene) -> None:
     model, _, groups = scene
     for apply in (
         lambda: hero_style(model, groups, 0.5),
-        lambda: plan_style(model, groups, 0.5),
+        lambda: plan_style(model, groups, 0.0, 0.5),
     ):
         apply()
         assert _alpha(model, "robot0_chassis") > 0.9
@@ -174,51 +211,77 @@ def test_ceiling_ignores_robots_above_the_subject() -> None:
     assert camera.ceiling(np.array([4.0, 4.0, 0.1])) < 3.0
 
 
-# --- overlay ------------------------------------------------------------------
+# --- routes and trails --------------------------------------------------------
 
 
-def test_hud_adds_bands_without_covering_the_frame() -> None:
-    """The caption must not sit on top of the thing it is captioning.
+def test_trails_ignore_a_robot_that_is_standing_still() -> None:
+    """A stalled robot must not spend the whole buffer on one spot.
 
-    Drawn as an overlay, the title bar and the status panel between them hid
-    the top and bottom third of the plan pane -- the view that exists to show
-    where every robot is.
+    The buffer is shared with the robot that got furthest, and it is that
+    robot's history that gets dropped when it fills.
     """
-    frame = np.full((240, 480, 3), 200, dtype=np.uint8)
-    out = draw_hud(
-        frame,
-        title="t",
-        subtitle="s",
-        readouts=[
-            RobotReadout("robot0", (1.0, 0.5, 0.1), 0, 3, 0.4, "driving"),
-        ],
-        elapsed_s=1.0,
-    )
-    assert out.dtype == np.uint8
-    assert out.shape[1] == frame.shape[1]
-    assert out.shape[0] > frame.shape[0]
-    # Every row of the original survives somewhere, untouched.
-    rows = {tuple(row) for row in out.reshape(out.shape[0], -1)}
-    assert tuple(np.full(480 * 3, 200, dtype=np.uint8)) in rows
-    kept = sum(1 for row in out.reshape(out.shape[0], -1) if row.min() == 200)
-    assert kept == frame.shape[0]
+    trails = Trails(n_robots=1, min_step_m=0.1)
+    for _ in range(50):
+        trails.record(np.array([[1.0, 1.0, 0.0]]))
+    assert trails.of(0).shape[0] == 1
 
 
-def test_hud_actually_draws_something() -> None:
-    frame = np.zeros((240, 480, 3), dtype=np.uint8)
-    out = draw_hud(
-        frame,
-        title="EMBER",
-        subtitle="s",
-        readouts=[RobotReadout("robot0", (1.0, 0.5, 0.1), 0, 3, 0.4, "driving")],
-        elapsed_s=1.0,
-    )
-    assert out.any(), "overlay left the frame untouched"
+def test_trails_follow_a_robot_that_moves() -> None:
+    trails = Trails(n_robots=2, min_step_m=0.1)
+    for step in range(10):
+        trails.record(np.array([[step * 0.5, 0.0, 0.0], [0.0, step * 0.5, 0.0]]))
+    assert trails.of(0).shape[0] == 10
+    assert trails.of(1).shape[0] == 10
 
 
-def test_stack_panes_joins_side_by_side() -> None:
-    left = np.zeros((100, 160, 3), dtype=np.uint8)
-    right = np.zeros((50, 50, 3), dtype=np.uint8)
-    out = stack_panes(left, right)
-    assert out.shape[0] == 100
-    assert out.shape[1] > left.shape[1]
+def test_trails_stay_inside_their_budget_and_keep_both_ends() -> None:
+    """Overflow thins the history; it must not truncate the journey."""
+    trails = Trails(n_robots=1, max_points=20, min_step_m=0.01)
+    for step in range(500):
+        trails.record(np.array([[step * 0.1, 0.0, 0.0]]))
+    track = trails.of(0)
+    assert track.shape[0] <= 20
+    assert track[0][0] == pytest.approx(0.0)
+    assert track[-1][0] == pytest.approx(49.9)
+
+
+def test_draw_paths_adds_geometry_to_the_scene(scene) -> None:
+    model, data, _ = scene
+    renderer = mujoco.Renderer(model, height=64, width=64)
+    try:
+        renderer.update_scene(data)
+        before = renderer.scene.ngeom
+        draw_paths(
+            renderer.scene,
+            [
+                PathTrace(
+                    livery=(1.0, 0.5, 0.1),
+                    route=np.linspace([0, 0, 0], [4, 4, 0], 40),
+                    trail=np.linspace([0, 0, 0], [2, 2, 0], 12),
+                )
+            ],
+        )
+        assert renderer.scene.ngeom > before
+    finally:
+        renderer.close()
+
+
+def test_draw_paths_survives_a_full_geom_buffer(scene) -> None:
+    """Running out of room must drop lines, not raise or corrupt the scene."""
+    model, data, _ = scene
+    renderer = mujoco.Renderer(model, height=64, width=64, max_geom=8)
+    try:
+        renderer.update_scene(data)
+        draw_paths(
+            renderer.scene,
+            [
+                PathTrace(
+                    livery=(1.0, 0.5, 0.1),
+                    route=np.linspace([0, 0, 0], [40, 40, 0], 4000),
+                    trail=np.linspace([0, 0, 0], [20, 20, 0], 4000),
+                )
+            ],
+        )
+        assert renderer.scene.ngeom <= renderer.scene.maxgeom
+    finally:
+        renderer.close()

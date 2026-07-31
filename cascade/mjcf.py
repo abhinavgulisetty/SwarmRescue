@@ -18,19 +18,9 @@ from __future__ import annotations
 
 from xml.etree import ElementTree as ET
 
-from .floorplan import FloorPlan
+from .look import add_assets, add_ground, add_lighting, add_visual
 from .params import GRAVITY_M_S2, BuildingParams
-from .structure import Member, MemberKind, Structure, overlapping_pairs
-
-#: Visual material per member kind: (rgba,) chosen so storeys read clearly in
-#: a render and rubble is distinguishable from intact structure.
-_MATERIALS: dict[MemberKind, tuple[float, float, float, float]] = {
-    MemberKind.COLUMN: (0.46, 0.47, 0.50, 1.0),
-    MemberKind.BEAM: (0.38, 0.39, 0.42, 1.0),
-    MemberKind.SLAB: (0.62, 0.61, 0.58, 1.0),
-    MemberKind.WALL: (0.80, 0.78, 0.73, 1.0),
-    MemberKind.STAIR: (0.55, 0.50, 0.44, 1.0),
-}
+from .structure import Member, Structure, overlapping_pairs
 
 #: Solver configuration, chosen by benchmark *and* a correctness check.
 #:
@@ -80,7 +70,6 @@ _WELD_SOLIMP = "0.97 0.999 0.001"
 
 def to_mjcf(
     structure: Structure,
-    plan: FloorPlan,
     *,
     model_name: str = "cascade",
     timestep_s: float = 0.002,
@@ -107,10 +96,10 @@ def to_mjcf(
     # size its arena from the model rather than guessing a byte budget.
     ET.SubElement(root, "size", memory="256M")
 
-    _add_visual(root)
+    add_visual(root)
     _add_defaults(root)
-    _add_assets(root, plan)
-    world = _add_worldbody(root, structure, params, plan)
+    add_assets(root)
+    world = _add_worldbody(root, structure, params)
 
     for element in extra_worldbody or ():
         world.append(element)
@@ -127,27 +116,6 @@ def to_mjcf(
     return ET.tostring(root, encoding="unicode")
 
 
-#: Offscreen framebuffer size.  MuJoCo defaults to 640x480 and *errors* rather
-#: than downscaling when asked for a larger frame, so this has to be declared
-#: in the model rather than chosen at render time.
-_OFFSCREEN_WIDTH: int = 1920
-_OFFSCREEN_HEIGHT: int = 1200
-
-
-def _add_visual(root: ET.Element) -> None:
-    visual = ET.SubElement(root, "visual")
-    ET.SubElement(
-        visual,
-        "global",
-        offwidth=str(_OFFSCREEN_WIDTH),
-        offheight=str(_OFFSCREEN_HEIGHT),
-    )
-    # A little atmospheric haze reads as dust and gives depth cues in a
-    # monochrome rubble field, where everything is the same grey.
-    ET.SubElement(visual, "map", fogstart="25", fogend="90", haze="0.25")
-    ET.SubElement(visual, "quality", shadowsize="4096", offsamples="8")
-
-
 def _add_defaults(root: ET.Element) -> None:
     default = ET.SubElement(root, "default")
     ET.SubElement(
@@ -161,78 +129,12 @@ def _add_defaults(root: ET.Element) -> None:
     )
 
 
-def _add_assets(root: ET.Element, plan: FloorPlan) -> None:
-    asset = ET.SubElement(root, "asset")
-    ET.SubElement(
-        asset,
-        "texture",
-        name="sky",
-        type="skybox",
-        builtin="gradient",
-        rgb1="0.12 0.14 0.18",
-        rgb2="0.02 0.02 0.03",
-        width="256",
-        height="256",
-    )
-    ET.SubElement(
-        asset,
-        "texture",
-        name="grid",
-        type="2d",
-        builtin="checker",
-        rgb1="0.16 0.17 0.19",
-        rgb2="0.21 0.22 0.24",
-        width="512",
-        height="512",
-    )
-    ET.SubElement(
-        asset,
-        "material",
-        name="ground",
-        texture="grid",
-        texrepeat="12 12",
-        reflectance="0.05",
-    )
-    for kind, rgba in _MATERIALS.items():
-        ET.SubElement(
-            asset,
-            "material",
-            name=f"mat_{kind.value}",
-            rgba=" ".join(f"{c}" for c in rgba),
-        )
-
-
 def _add_worldbody(
-    root: ET.Element,
-    structure: Structure,
-    params: BuildingParams,
-    plan: FloorPlan,
+    root: ET.Element, structure: Structure, params: BuildingParams
 ) -> ET.Element:
     world = ET.SubElement(root, "worldbody")
-
-    width, depth = params.footprint_m
-    ET.SubElement(
-        world,
-        "light",
-        name="key",
-        pos=f"{width * 0.5} {depth * 0.5} {params.total_height_m + 8.0}",
-        dir="0 0 -1",
-        directional="true",
-        diffuse="0.7 0.7 0.7",
-    )
-    # The ground plane extends well past the footprint so debris thrown clear
-    # of the building still lands on something.
-    ET.SubElement(
-        world,
-        "geom",
-        name="ground",
-        type="plane",
-        size=f"{width} {depth} 0.5",
-        pos=f"{width * 0.5} {depth * 0.5} 0",
-        material="ground",
-        condim="3",
-        friction=_FRICTION,
-    )
+    add_lighting(world, params.footprint_m, params.total_height_m)
+    add_ground(world, params.footprint_m, _FRICTION)
 
     for member in structure.members:
         _add_member(world, member)
@@ -343,7 +245,6 @@ def settled_poses(model, data, structure: Structure) -> dict[str, tuple]:
 
 def to_settled_mjcf(
     structure: Structure,
-    plan: FloorPlan,
     poses: dict[str, tuple],
     *,
     model_name: str = "cascade_settled",
@@ -381,32 +282,13 @@ def to_settled_mjcf(
         ls_iterations=_SOLVER_LS_ITERATIONS,
     )
     ET.SubElement(root, "size", memory="64M")
-    _add_visual(root)
+    add_visual(root)
     _add_defaults(root)
-    _add_assets(root, plan)
+    add_assets(root)
 
     world = ET.SubElement(root, "worldbody")
-    width, depth = params.footprint_m
-    ET.SubElement(
-        world,
-        "light",
-        name="key",
-        pos=f"{width * 0.5} {depth * 0.5} {params.total_height_m + 8.0}",
-        dir="0 0 -1",
-        directional="true",
-        diffuse="0.7 0.7 0.7",
-    )
-    ET.SubElement(
-        world,
-        "geom",
-        name="ground",
-        type="plane",
-        size=f"{width} {depth} 0.5",
-        pos=f"{width * 0.5} {depth * 0.5} 0",
-        material="ground",
-        condim="3",
-        friction=_FRICTION,
-    )
+    add_lighting(world, params.footprint_m, params.total_height_m)
+    add_ground(world, params.footprint_m, _FRICTION)
     for member in structure.members:
         pose = poses.get(member.name)
         if pose is None:

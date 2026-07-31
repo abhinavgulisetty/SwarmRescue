@@ -27,21 +27,24 @@ import mujoco
 import numpy as np
 
 from .cinema import (
-    RobotReadout,
+    CEILING_MARGIN_M,
+    PLAN_FLOOR_DROP_M,
+    GeomGroups,
+    PathTrace,
     SwarmCamera,
-    VideoWriter,
-    draw_hud,
+    Trails,
+    draw_paths,
     hero_style,
     index_geoms,
     plan_style,
     plan_view,
-    stack_panes,
 )
 from .collapse import apply_settled_state, collapse_for_seed, model_hash
 from .extract import build_graph, rasterize
 from .floorplan import build_floorplan
+from .hud import RobotReadout, VideoWriter, caption, draw_hud, stack_panes
 from .mjcf import settled_poses, to_mjcf, to_settled_mjcf
-from .params import CascadeParams
+from .params import BuildingParams, CascadeParams
 from .render import render_scene
 from .robot import RobotSpec
 from .structure import build_structure
@@ -59,6 +62,12 @@ SETTLE_STEPS: int = 250
 #: Hard cap on rendered frames, so a run that never terminates cannot
 #: produce an unwatchably long video.  At 24 fps this is two minutes.
 MAX_FRAMES: int = 2880
+#: Renderer geom budget.  The settled scene is ~460 static geoms; on top of
+#: that go four planned routes and four trails, drawn as capsules.  The default
+#: 10000 is ample, but the overlay fails *silently* when it runs out -- a trail
+#: that stops halfway looks like a robot that stopped halfway -- so the budget
+#: is stated rather than inherited.
+MAX_SCENE_GEOMS: int = 12_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +110,7 @@ class DemoResult:
 
 def _settled_scene(seed, params, plan, structure, use_cache):
     """Collapse the building and return its settled member poses."""
-    dynamic_xml = to_mjcf(structure, plan)
+    dynamic_xml = to_mjcf(structure)
     digest = model_hash(dynamic_xml)
     dynamic = mujoco.MjModel.from_xml_string(dynamic_xml)
     print(f"[cascade] seed {seed}: {dynamic.nbody - 1} bodies, {dynamic.neq} welds")
@@ -137,7 +146,7 @@ def run_demo(
     # a model that already contains them marks each robot's own chassis as an
     # obstacle, which -- once obstacles are grown by the robot radius -- can
     # block the very cell it is standing on.
-    bare = mujoco.MjModel.from_xml_string(to_settled_mjcf(structure, plan, poses))
+    bare = mujoco.MjModel.from_xml_string(to_settled_mjcf(structure, poses))
     bare_data = mujoco.MjData(bare)
     mujoco.mj_forward(bare, bare_data)
 
@@ -169,7 +178,6 @@ def run_demo(
     model = mujoco.MjModel.from_xml_string(
         to_settled_mjcf(
             structure,
-            plan,
             poses,
             extra_worldbody=bodies,
             extra_actuators=actuators,
@@ -190,15 +198,20 @@ def run_demo(
         mujoco.mj_step(model, data)
     _check_stable(model, data)
 
-    groups = index_geoms(model, data)
-    camera = SwarmCamera(footprint_m=building.footprint_m)
-    overhead = plan_view(
-        building.footprint_m, building.total_height_m, aspect=width / height
+    stage = Stage(
+        seed=seed,
+        building=building,
+        groups=index_geoms(model, data),
+        camera=SwarmCamera(footprint_m=building.footprint_m),
+        trails=Trails(n_robots=len(swarm.members)),
+        aspect=width / height,
     )
     every = max(1, round(speed / (fps * params.collapse.timestep_s)))
 
     renderer = (
-        mujoco.Renderer(model, height=height, width=width) if render else None
+        mujoco.Renderer(model, height=height, width=width, max_geom=MAX_SCENE_GEOMS)
+        if render
+        else None
     )
     writer = (
         VideoWriter(out_dir / f"seed{seed}_swarm.mp4", fps=fps) if render else None
@@ -217,17 +230,12 @@ def run_demo(
             if step % every or writer.frames >= MAX_FRAMES:
                 continue
             writer.append(
-                _compose(
+                stage.compose(
                     model,
                     data,
                     renderer,
                     swarm,
-                    groups,
-                    camera,
-                    overhead,
-                    seed=seed,
                     elapsed_s=step * params.collapse.timestep_s,
-                    storey_height_m=building.storey_height_m,
                 )
             )
     finally:
@@ -275,58 +283,103 @@ def _check_stable(model: mujoco.MjModel, data: mujoco.MjData) -> None:
         raise RuntimeError("simulation diverged during settling")
 
 
-def _compose(
-    model,
-    data,
-    renderer,
-    swarm: Swarm,
-    groups,
-    camera: SwarmCamera,
-    overhead,
-    *,
-    seed: int,
-    elapsed_s: float,
-    storey_height_m: float,
-) -> np.ndarray:
-    """Render the hero and plan panes and lay the HUD over them."""
-    positions = swarm.positions(data)
-    subject = swarm.focus()
-    subject_at = np.asarray(data.xpos[subject.body_id], dtype=np.float64)
-    ceiling = camera.ceiling(subject_at)
+@dataclass
+class Stage:
+    """Everything the presentation needs that the simulation does not.
 
-    hero_style(model, groups, ceiling)
-    hero = render_scene(
-        model, data, camera.update(subject_at, positions), renderer=renderer
-    )
+    A class rather than a pile of parameters because two of these -- the camera
+    and the trails -- carry state between frames, and threading them through a
+    free function alongside eight other arguments was how `_compose` came to
+    take ten.
+    """
 
-    plan_style(model, groups, ceiling)
-    top = render_scene(model, data, overhead, renderer=renderer)
+    seed: int
+    building: BuildingParams
+    groups: GeomGroups
+    camera: SwarmCamera
+    trails: Trails
+    aspect: float
 
-    readouts = [
-        RobotReadout(
-            name=member.name,
-            livery=member.assignment.spec.livery,
-            storey=math.floor(
-                float(data.xpos[member.body_id][2]) / storey_height_m + 0.25
+    def compose(
+        self,
+        model,
+        data,
+        renderer,
+        swarm: Swarm,
+        *,
+        elapsed_s: float,
+    ) -> np.ndarray:
+        """Render both panes and wrap them in the telemetry overlay."""
+        positions = swarm.positions(data)
+        self.trails.record(positions)
+        subject = swarm.focus()
+        subject_at = np.asarray(data.xpos[subject.body_id], dtype=np.float64)
+        ceiling = self.camera.ceiling(subject_at)
+        traces = self._traces(swarm)
+
+        hero_style(model, self.groups, ceiling)
+        hero = caption(
+            render_scene(
+                model,
+                data,
+                self.camera.update(subject_at, positions),
+                renderer=renderer,
+                overlay=lambda scene: draw_paths(scene, traces),
             ),
-            goal_storey=member.assignment.goal_storey,
-            progress=member.progress,
-            status=member.status,
+            f"tracking {subject.name}  ·  cut {CEILING_MARGIN_M:.1f} m above it",
         )
-        for member in swarm.members
-    ]
-    arrived = sum(1 for m in swarm.members if m.driver.finished)
-    return draw_hud(
-        stack_panes(hero, top),
-        title="EMBER / Cascade -- Phase 0 traversal",
-        subtitle=(
-            f"seed {seed} | blast-collapsed 4-storey building | "
-            f"{arrived}/{len(swarm.members)} arrived | "
-            f"left: dollhouse cut at {subject.name} | right: plan, slabs removed"
-        ),
-        readouts=readouts,
-        elapsed_s=elapsed_s,
-    )
+
+        floor_z = float(subject_at[2]) - PLAN_FLOOR_DROP_M
+        plan_style(model, self.groups, floor_z, ceiling)
+        top = caption(
+            render_scene(
+                model,
+                data,
+                plan_view(self.building.footprint_m, floor_z, aspect=self.aspect),
+                renderer=renderer,
+                overlay=lambda scene: draw_paths(scene, traces),
+            ),
+            f"plan of storey {self._storey(subject_at[2])}",
+        )
+
+        return draw_hud(
+            stack_panes(hero, top),
+            title="EMBER · CASCADE",
+            subtitle=(
+                f"Phase 0 — swarm traversal of a blast-collapsed "
+                f"{self.building.n_storeys}-storey building  ·  seed {self.seed}"
+            ),
+            readouts=self._readouts(data, swarm, subject),
+            elapsed_s=elapsed_s,
+            n_storeys=self.building.n_storeys + 1,
+        )
+
+    def _storey(self, height_m: float) -> int:
+        return math.floor(height_m / self.building.storey_height_m + 0.25)
+
+    def _traces(self, swarm: Swarm) -> list[PathTrace]:
+        return [
+            PathTrace(
+                livery=member.assignment.spec.livery,
+                route=member.assignment.route,
+                trail=self.trails.of(index),
+            )
+            for index, member in enumerate(swarm.members)
+        ]
+
+    def _readouts(self, data, swarm: Swarm, subject) -> list[RobotReadout]:
+        return [
+            RobotReadout(
+                name=member.name,
+                livery=member.assignment.spec.livery,
+                storey=self._storey(float(data.xpos[member.body_id][2])),
+                goal_storey=member.assignment.goal_storey,
+                progress=member.progress,
+                status=member.status,
+                is_subject=member is subject,
+            )
+            for member in swarm.members
+        ]
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -8,23 +8,29 @@ a wall between the lens and the robot within seconds and kept it there --
 several hundred frames of an empty grey wall, with the robot alive and driving
 the whole time, invisible.
 
-Three things fix it, and all three are geometric rather than aesthetic:
+Four things fix it, and all four are geometric rather than aesthetic:
 
 * **Dollhouse culling.**  Everything above the storey being watched is removed,
   so the camera looks down into the building instead of at the outside of it.
 * **Translucent partitions.**  Walls below the cut stay visible enough to read
   the floor plan but no longer hide what is moving behind them.
 * **A camera that tracks the swarm** rather than pointing in a fixed direction.
+* **Routes and trails drawn into the scene.**  A robot two hundred pixels away
+  is a dot; the line it has drawn behind it is legible at any distance, and it
+  is also the evidence -- the planned route and the driven track laid over each
+  other are the demo's entire claim, in a form a viewer can check.
 
-The plan pane complements the hero shot: with every slab removed, a top-down
-view shows every robot at once regardless of which storey it is on, which is
-the only single frame that answers "where is the swarm".
+The plan pane complements the hero shot with a top-down slice of the storey
+being watched, which is where the robots on it actually are relative to the
+walls around them.
+
+Everything here is about the three-dimensional scene.  The captions and
+telemetry drawn on the finished pixels live in `cascade.hud`.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import mujoco
 import numpy as np
@@ -42,6 +48,12 @@ PLAN_WALL_ALPHA: float = 0.75
 #: Height of the cut above the robot being followed, metres.  Clears the
 #: robot's beacon and the door heads, and stays under the next slab up.
 CEILING_MARGIN_M: float = 1.75
+#: How far *below* the subject the plan pane's slice starts, metres.  Small and
+#: positive: a wall on the storey below ends exactly at this storey's floor, so
+#: a slice that reaches even slightly under the robot's wheels picks up the
+#: partitions of the floor beneath and the pane fills with a second plan
+#: superimposed on the first.
+PLAN_FLOOR_DROP_M: float = 0.05
 #: How far above or below the subject another robot counts as being on the
 #: same storey, and so worth keeping in frame, metres.
 COMPANION_HEIGHT_M: float = 1.6
@@ -56,9 +68,11 @@ class GeomGroups:
     frame: np.ndarray
     robots: np.ndarray
     base_rgba: np.ndarray
-    #: World height of each geom's lowest corner.  Precomputed because the
-    #: structural geoms are static, so it never changes after settling.
+    #: World height of each geom's lowest and highest point.  Precomputed
+    #: because the structural geoms are static, so neither changes after
+    #: settling.
     low_z: np.ndarray
+    high_z: np.ndarray
 
     @property
     def structural(self) -> np.ndarray:
@@ -79,6 +93,7 @@ def index_geoms(model: mujoco.MjModel, data: mujoco.MjData) -> GeomGroups:
     robots: list[int] = []
     base = np.zeros((model.ngeom, 4), dtype=np.float32)
     low_z = np.zeros(model.ngeom, dtype=np.float64)
+    high_z = np.zeros(model.ngeom, dtype=np.float64)
 
     for geom in range(model.ngeom):
         name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, geom) or ""
@@ -94,7 +109,9 @@ def index_geoms(model: mujoco.MjModel, data: mujoco.MjData) -> GeomGroups:
         # building with its roof on.
         rot = np.asarray(data.geom_xmat[geom], dtype=np.float64).reshape(3, 3)
         half = np.asarray(model.geom_size[geom][:3], dtype=np.float64)
-        low_z[geom] = float(data.geom_xpos[geom][2] - np.abs(rot[2, :]) @ half)
+        reach = float(np.abs(rot[2, :]) @ half)
+        low_z[geom] = float(data.geom_xpos[geom][2]) - reach
+        high_z[geom] = float(data.geom_xpos[geom][2]) + reach
 
         member = name[2:] if name.startswith("g_") else ""
         if member.startswith("slab_"):
@@ -116,6 +133,7 @@ def index_geoms(model: mujoco.MjModel, data: mujoco.MjData) -> GeomGroups:
         robots=as_array(robots),
         base_rgba=base,
         low_z=low_z,
+        high_z=high_z,
     )
 
 
@@ -152,24 +170,154 @@ def hero_style(
 
 
 def plan_style(
-    model: mujoco.MjModel, groups: GeomGroups, ceiling_z: float
+    model: mujoco.MjModel, groups: GeomGroups, floor_z: float, ceiling_z: float
 ) -> None:
-    """Top-down view: no slabs at all, and nothing above the cut.
+    """Top-down view of the one storey between `floor_z` and `ceiling_z`.
 
-    Slabs go first because from directly overhead they are the only thing
-    between the camera and the swarm.  The same cut as the hero pane goes with
-    them, so the plan reads as one storey rather than four superimposed --
-    with every storey's partitions in shot at once the result is a thicket of
-    nested rectangles that nobody can locate a robot in.
+    Slabs go first: from directly overhead they are the only thing between the
+    camera and the swarm.
+
+    Cutting only from above -- the first version -- is not enough, and the
+    result was the single worst frame in the demo.  Watching a robot on the
+    third storey, everything from the ground up was still in shot, so the pane
+    showed four floor plans stacked in projection: forty-odd partitions of
+    identical colour, none of them at the height anything was happening, and a
+    robot somewhere inside as a dot.  A floor plan is only a floor plan if it
+    is of one floor.
     """
     if not groups.structural.size:
         return
-    alpha = _cut_above(groups, ceiling_z)
+    alpha = np.zeros_like(groups.base_rgba[:, 3])
+    structural = groups.structural
+    inside = structural[
+        (groups.high_z[structural] > floor_z)
+        & (groups.low_z[structural] < ceiling_z)
+    ]
+    alpha[inside] = groups.base_rgba[inside, 3]
     if groups.slabs.size:
         alpha[groups.slabs] = 0.0
-    kept_walls = groups.walls[groups.low_z[groups.walls] <= ceiling_z]
+    kept_walls = np.intersect1d(inside, groups.walls, assume_unique=False)
     alpha[kept_walls] = PLAN_WALL_ALPHA
     _apply(model, groups, alpha)
+
+
+# --- routes and trails --------------------------------------------------------
+
+#: Radius of the drawn planned route, metres.
+ROUTE_WIDTH_M: float = 0.035
+#: ...and of the track the robot has actually left, drawn thicker because it is
+#: the claim the demo is making.  The route is what was promised; the trail is
+#: what happened, and the gap between them is the only thing worth looking at.
+TRAIL_WIDTH_M: float = 0.06
+#: How far the lines float above the surface they lie on, metres.  Enough to
+#: clear z-fighting with a floor slab at any camera distance in use.
+LINE_LIFT_M: float = 0.07
+#: Route waypoints per drawn vertex.  The planner emits one per 0.25 m voxel,
+#: and a capsule per voxel is thousands of geoms for a line the eye reads as
+#: smooth at a quarter of that.
+ROUTE_STRIDE: int = 4
+#: Alpha of the planned route.  Present but recessive: it is context for the
+#: trail, not the subject.
+ROUTE_ALPHA: float = 0.40
+
+
+@dataclass(frozen=True, slots=True)
+class PathTrace:
+    """One robot's planned route and the track it has actually left."""
+
+    livery: tuple[float, float, float]
+    route: np.ndarray
+    trail: np.ndarray
+
+
+@dataclass
+class Trails:
+    """Where each robot has been, sampled once per rendered frame.
+
+    Bounded in both length and density on purpose.  A full traversal is well
+    over a thousand frames, and a robot that stalls contributes a frame's worth
+    of trail for every frame it spends not moving -- so an unbounded buffer is
+    mostly a record of standing still, and it is the robot that got furthest
+    whose history gets dropped when the renderer runs out of geoms.
+    """
+
+    n_robots: int
+    max_points: int = 300
+    #: Minimum distance between stored points, metres.
+    min_step_m: float = 0.12
+    _points: list[list[np.ndarray]] = field(default_factory=list, repr=False)
+
+    def __post_init__(self) -> None:
+        self._points = [[] for _ in range(self.n_robots)]
+
+    def record(self, positions: np.ndarray) -> None:
+        for index, position in enumerate(np.asarray(positions, dtype=np.float64)):
+            track = self._points[index]
+            if track and float(np.linalg.norm(position - track[-1])) < self.min_step_m:
+                continue
+            track.append(position.copy())
+            if len(track) > self.max_points:
+                # Thin the oldest half rather than dropping the head, so the
+                # whole journey stays on screen at declining resolution.  The
+                # slice starts at 1 so that the very first point -- the door
+                # the robot came in by -- is never the one discarded.
+                del track[1 : len(track) // 2 : 2]
+
+    def of(self, index: int) -> np.ndarray:
+        track = self._points[index]
+        return np.asarray(track, dtype=np.float64) if track else np.zeros((0, 3))
+
+
+def _connect(scene, start, end, rgba, width: float) -> bool:
+    """Append one capsule spanning `start` to `end`.  False if the buffer is full."""
+    if scene.ngeom >= scene.maxgeom:
+        return False
+    geom = scene.geoms[scene.ngeom]
+    mujoco.mjv_initGeom(
+        geom,
+        mujoco.mjtGeom.mjGEOM_CAPSULE,
+        np.zeros(3),
+        np.zeros(3),
+        np.eye(3).flatten(),
+        np.asarray(rgba, dtype=np.float32),
+    )
+    mujoco.mjv_connector(
+        geom,
+        mujoco.mjtGeom.mjGEOM_CAPSULE,
+        width,
+        np.ascontiguousarray(start, dtype=np.float64),
+        np.ascontiguousarray(end, dtype=np.float64),
+    )
+    scene.ngeom += 1
+    return True
+
+
+def _polyline(scene, points: np.ndarray, rgba, width: float) -> None:
+    lifted = points + np.array([0.0, 0.0, LINE_LIFT_M])
+    for start, end in zip(lifted[:-1], lifted[1:], strict=True):
+        if not _connect(scene, start, end, rgba, width):
+            return
+
+
+def draw_paths(scene, traces: list[PathTrace]) -> None:
+    """Overlay every robot's planned route and driven trail onto `scene`.
+
+    This is what turns the demo from footage of things moving into a claim
+    anyone can check: the thin line is where the planner said the robot could
+    go, the thick one is where it went, and a viewer can see for themselves
+    whether the second follows the first.
+    """
+    for trace in traces:
+        colour = tuple(trace.livery)
+        if trace.route.shape[0] > 1:
+            _polyline(
+                scene,
+                trace.route[:: ROUTE_STRIDE],
+                (*colour, ROUTE_ALPHA),
+                ROUTE_WIDTH_M,
+            )
+        if trace.trail.shape[0] > 1:
+            _polyline(scene, trace.trail, (*colour, 1.0), TRAIL_WIDTH_M)
 
 
 # --- cameras ------------------------------------------------------------------
@@ -267,210 +415,33 @@ class SwarmCamera:
 _VIEW_PER_METRE: float = 0.828
 
 
+#: Framing margin around the footprint in the plan pane.
+_PLAN_MARGIN: float = 1.22
+
+
 def plan_view(
     footprint_m: tuple[float, float],
-    total_height_m: float,
+    floor_z: float,
     aspect: float = 1.6,
 ) -> CameraView:
-    """Fixed top-down view framed to the footprint.
+    """Top-down view of the storey at `floor_z`, framed to the footprint.
 
     Framed rather than guessed.  The old fixed multiple of the longer side put
     the camera 37 m up over a 24 x 18 m building, which left a third of the
     pane empty on every side and shrank each robot to a couple of pixels in
     the one view whose entire job is to say where they are.
+
+    Aimed at the storey on show rather than at the middle of the building, so
+    that the plan is the same size whichever storey it is of.  Under a fixed
+    aim point the ground floor sat 33 m from the lens and the roof 21 m, and
+    the pane silently changed scale by half as the swarm climbed.
     """
     width, depth = footprint_m
-    margin = 1.22
-    distance = margin * max(depth, width / aspect) / _VIEW_PER_METRE
+    distance = _PLAN_MARGIN * max(depth, width / aspect) / _VIEW_PER_METRE
     return CameraView(
         name="plan",
-        lookat=(0.5 * width, 0.5 * depth, 0.5 * total_height_m),
+        lookat=(0.5 * width, 0.5 * depth, float(floor_z)),
         distance=distance,
         azimuth=90.0,
         elevation=-89.0,
     )
-
-
-# --- overlay ------------------------------------------------------------------
-
-
-_FONT_CANDIDATES = (
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-)
-
-
-def _font(size: int):
-    from PIL import ImageFont
-
-    for path in _FONT_CANDIDATES:
-        if Path(path).exists():
-            return ImageFont.truetype(path, size)
-    return ImageFont.load_default()
-
-
-@dataclass(frozen=True, slots=True)
-class RobotReadout:
-    """One line of the HUD."""
-
-    name: str
-    livery: tuple[float, float, float]
-    storey: int
-    goal_storey: int
-    progress: float
-    status: str
-
-
-def draw_hud(
-    frame: np.ndarray,
-    *,
-    title: str,
-    subtitle: str,
-    readouts: list[RobotReadout],
-    elapsed_s: float,
-) -> np.ndarray:
-    """Return the frame with a title bar above it and a status panel below.
-
-    Around the frame rather than over it.  Drawn as overlays these two bands
-    covered the top and bottom third of the plan pane -- which is where the
-    building was -- so the view whose job is to show every robot at once was
-    showing the middle half of the floor and hiding the rest behind the
-    caption describing it.
-    """
-    from PIL import Image, ImageDraw
-
-    pane = Image.fromarray(frame).convert("RGB")
-    width, pane_height = pane.size
-
-    pad = max(12, width // 80)
-    title_font = _font(max(16, width // 46))
-    body_font = _font(max(12, width // 74))
-    small_font = _font(max(11, width // 88))
-
-    band = pad * 2 + title_font.size + small_font.size
-    row_h = body_font.size + 10
-    panel_h = pad + row_h * len(readouts) + pad // 2
-
-    height = band + pane_height + panel_h
-    image = Image.new("RGB", (width, height), (10, 12, 16))
-    image.paste(pane, (0, band))
-    draw = ImageDraw.Draw(image, "RGBA")
-
-    # Header band.
-    draw.text((pad, pad // 2), title, font=title_font, fill=(238, 240, 245))
-    draw.text(
-        (pad, pad // 2 + title_font.size + 2),
-        subtitle,
-        font=small_font,
-        fill=(150, 158, 172),
-    )
-    clock = f"t = {elapsed_s:5.1f} s"
-    draw.text(
-        (width - pad - draw.textlength(clock, font=body_font), pad),
-        clock,
-        font=body_font,
-        fill=(190, 196, 208),
-    )
-
-    # Per-robot rows.
-    top = band + pane_height
-
-    bar_w = max(90, width // 7)
-    for index, readout in enumerate(readouts):
-        y = top + pad // 2 + index * row_h
-        colour = tuple(int(255 * c) for c in readout.livery)
-
-        draw.rectangle([pad, y + 3, pad + 12, y + 15], fill=(*colour, 255))
-        draw.text(
-            (pad + 20, y),
-            f"{readout.name}",
-            font=body_font,
-            fill=(226, 230, 238),
-        )
-        draw.text(
-            (pad + 20 + width // 12, y),
-            f"storey {readout.storey} -> {readout.goal_storey}",
-            font=body_font,
-            fill=(186, 192, 204),
-        )
-
-        bar_x = pad + 20 + width // 12 + width // 8
-        draw.rectangle(
-            [bar_x, y + 4, bar_x + bar_w, y + 14], fill=(44, 48, 58, 255)
-        )
-        filled = int(bar_w * max(0.0, min(1.0, readout.progress)))
-        if filled:
-            draw.rectangle(
-                [bar_x, y + 4, bar_x + filled, y + 14], fill=(*colour, 255)
-            )
-
-        status_colour = {
-            "arrived": (140, 220, 150),
-            "stalled": (232, 150, 140),
-        }.get(readout.status, (176, 182, 196))
-        draw.text(
-            (bar_x + bar_w + 14, y),
-            readout.status,
-            font=body_font,
-            fill=status_colour,
-        )
-
-    return np.asarray(image, dtype=np.uint8)
-
-
-def stack_panes(hero: np.ndarray, plan: np.ndarray) -> np.ndarray:
-    """Put the plan pane beside the hero shot, matching heights."""
-    from PIL import Image
-
-    target_h = hero.shape[0]
-    scale = target_h / plan.shape[0]
-    resized = np.asarray(
-        Image.fromarray(plan).resize(
-            (max(1, int(plan.shape[1] * scale)), target_h), Image.LANCZOS
-        ),
-        dtype=np.uint8,
-    )
-    gap = np.zeros((target_h, 4, 3), dtype=np.uint8)
-    return np.concatenate((hero, gap, resized), axis=1)
-
-
-class VideoWriter:
-    """Encodes frames to an mp4 as they arrive.
-
-    Streaming rather than collecting, because a traversal of a four-storey
-    building runs to a couple of thousand frames and a pane pair at this size
-    is 4.7 MB each.  Holding them all and encoding at the end needs the better
-    part of ten gigabytes, and the demo was killed by the OOM reaper after
-    twenty minutes of simulation with nothing written out.
-    """
-
-    def __init__(self, path: str | Path, fps: int = 30) -> None:
-        import imageio.v2 as iio
-
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._writer = iio.get_writer(
-            self.path, fps=fps, codec="libx264", quality=8
-        )
-        self._shape: tuple[int, int] | None = None
-        self.frames = 0
-
-    def append(self, frame: np.ndarray) -> None:
-        if self._shape is None:
-            height, width = frame.shape[:2]
-            # H.264 wants even dimensions, and the encoder needs every frame
-            # the same size as the first.
-            self._shape = (height - height % 2, width - width % 2)
-        height, width = self._shape
-        self._writer.append_data(np.ascontiguousarray(frame[:height, :width]))
-        self.frames += 1
-
-    def close(self) -> Path | None:
-        self._writer.close()
-        return self.path if self.frames else None
-
-    def __enter__(self) -> VideoWriter:
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        self.close()

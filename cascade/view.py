@@ -72,7 +72,7 @@ def build_scene(
             ),
         )
 
-    xml = to_mjcf(structure, plan)
+    xml = to_mjcf(structure)
     model = mujoco.MjModel.from_xml_string(xml)
     data = mujoco.MjData(model)
     mujoco.mj_forward(model, data)
@@ -89,7 +89,7 @@ def build_scene(
     # Re-emit as static geometry: nothing is moving any more, and a static
     # scene is far lighter for the interactive viewer to run.
     static = mujoco.MjModel.from_xml_string(
-        to_settled_mjcf(structure, plan, settled_poses(model, data, structure))
+        to_settled_mjcf(structure, settled_poses(model, data, structure))
     )
     static_data = mujoco.MjData(static)
     mujoco.mj_forward(static, static_data)

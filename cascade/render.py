@@ -17,6 +17,7 @@ import os
 
 os.environ.setdefault("MUJOCO_GL", "glfw")
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -75,11 +76,16 @@ def render_scene(
     width: int = DEFAULT_WIDTH,
     height: int = DEFAULT_HEIGHT,
     renderer: mujoco.Renderer | None = None,
+    overlay: Callable[[mujoco.MjvScene], None] | None = None,
 ) -> np.ndarray:
     """Render one frame as an RGB array.
 
     Pass an existing `renderer` when rendering many frames: constructing one
     allocates a GL context, which is far more expensive than a frame.
+
+    `overlay` is handed the populated scene just before it is drawn, which is
+    the only point at which geometry that is not in the model -- a planned
+    route, a trail -- can be added to the picture.
     """
     own = renderer is None
     active = renderer or mujoco.Renderer(model, height=height, width=width)
@@ -87,6 +93,8 @@ def render_scene(
         camera = mujoco.MjvCamera()
         view.apply(camera)
         active.update_scene(data, camera=camera)
+        if overlay is not None:
+            overlay(active.scene)
         return active.render()
     finally:
         if own:
