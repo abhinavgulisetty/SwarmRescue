@@ -105,3 +105,29 @@ def test_replanning_reuses_the_robot_arena_without_growing_storage() -> None:
         assert robot.plan(model).route(0) == (0, 1, 2)
         assert robot.arena.used == used
     assert robot.arena.high_water < robot.arena.capacity
+
+
+@pytest.mark.parametrize('nodes', (1, 3, 19, 4000))
+def test_compact_storage_estimate_matches_actual_arena_and_routes(nodes):
+    from ember.gbp import gbp_storage_bytes
+    from ember.physical_team import PhysicalRobotTeam
+    from ember.routing import LMDPConfig, build_lmdp
+    from tests.test_gbp import _line_graph
+
+    graph = _line_graph(nodes)
+    team = PhysicalRobotTeam(graph, np.zeros((2, 3)), loss_seed=11)
+    robot = team.robots[0]
+    assert robot.arena.used == gbp_storage_bytes(graph.n_nodes, graph.n_edges)
+    numeric = sum(getattr(robot.engine, name).nbytes for name in (
+        'local_precision', 'local_information', 'source', 'target', 'reverse',
+        'edge_variance', 'message_precision', 'message_information',
+    ))
+    legacy = 16 * nodes + 96 * graph.n_edges
+    assert numeric == 16 * nodes + 60 * graph.n_edges
+    assert numeric <= legacy
+    # Nonzero self-loop weights exercise the transition-count workspace bound.
+    model = build_lmdp(graph, np.full(nodes, 0.3), (nodes - 1,),
+                       config=LMDPConfig(self_loop_weight=0.5, max_sweeps=20_000))
+    assert robot.plan(model, native=True).route(0) == tuple(range(nodes))
+    assert robot.arena.used <= robot.arena.capacity
+    assert not np.shares_memory(robot.engine.source, team.robots[1].engine.source)

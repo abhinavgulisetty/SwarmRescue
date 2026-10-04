@@ -25,6 +25,7 @@ from cascade.extract import (
 from cascade.mjcf import settled_poses, to_settled_mjcf
 from cascade.robot import build_robot, place_robot
 from ember.comms import PACKET_HEADER_BYTES, UPDATE_BYTES, GaussianPacket
+from ember.gbp import gbp_storage_bytes
 from ember.geometry_sensing import radio_wall_counts
 from ember.physical import plan_belief_route, scan_physical_hazard
 from ember.radio import RadioMedium, RadioStats
@@ -233,8 +234,11 @@ class PhysicalRobotTeam:
 
     def _new_robot(self, robot_id, position):
         # Numeric GBP state plus reusable integer routing buffers and alignment.
+        nodes, edges = self.graph.n_nodes, self.graph.n_edges
+        # build_lmdp has at most two transitions per edge plus one per node.
+        routing_bytes = 18 * nodes + 8 * (2 * edges + nodes) + 12
         capacity = max(
-            200 * 1024, 40 * self.graph.n_nodes + 120 * self.graph.n_edges + 1024
+            200 * 1024, gbp_storage_bytes(nodes, edges) + routing_bytes + 1024
         )
         return RobotState(robot_id, self.graph, position, arena=MCUArena(capacity))
 

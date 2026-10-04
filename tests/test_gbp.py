@@ -23,7 +23,9 @@ def _line_graph(nodes: int) -> TraversabilityGraph:
             )
         ),
         np.zeros(nodes),
-        np.asarray([(index, index + 1) for index in range(nodes - 1)]),
+        np.asarray(
+            [(index, index + 1) for index in range(nodes - 1)], dtype=np.int64
+        ).reshape(-1, 2),
         np.ones(nodes - 1),
     )
 
@@ -136,3 +138,60 @@ def test_partitioned_messages_age_and_reconnection_recovers() -> None:
         rtol=0.0,
         atol=1.0e-7,
     )
+
+
+@pytest.mark.parametrize('nodes', (32769, 32770, 65536, 65537))
+def test_compact_topology_preserves_indices_at_width_boundaries(nodes):
+    graph = _line_graph(nodes)
+    gbp = GaussianBeliefPropagation(graph, mean=0.3, variance=0.04)
+    edge_count = nodes - 1
+    expected_endpoint = np.uint16 if nodes <= 65536 else np.uint32
+    expected_reverse = np.uint16 if 2 * edge_count <= 65536 else np.uint32
+    assert gbp.source.dtype == expected_endpoint
+    assert gbp.target.dtype == expected_endpoint
+    assert gbp.reverse.dtype == expected_reverse
+    np.testing.assert_array_equal(gbp.source[:edge_count], np.arange(edge_count))
+    np.testing.assert_array_equal(gbp.target[:edge_count], np.arange(1, nodes))
+    np.testing.assert_array_equal(
+        gbp.reverse[gbp.reverse], np.arange(2 * edge_count)
+    )
+    np.testing.assert_array_equal(gbp.source[gbp.reverse], gbp.target)
+
+
+def test_compact_indices_match_int64_reference_for_masked_updates_and_aging():
+    graph = _line_graph(31)
+    compact = GaussianBeliefPropagation(graph, mean=0.3, variance=0.04)
+    reference = GaussianBeliefPropagation(graph, mean=0.3, variance=0.04)
+    for name in ('source', 'target', 'reverse'):
+        setattr(reference, name, getattr(reference, name).astype(np.int64))
+    rng = np.random.default_rng(91)
+    for _ in range(6):
+        cells = rng.integers(0, graph.n_nodes, 12)
+        mean = rng.uniform(-2, 5, 12)
+        variance = rng.uniform(0.01, 1, 12)
+        for engine in (compact, reference):
+            engine.observe(cells, mean, variance)
+            engine.age(cells, 0.02)
+        for _ in range(25):
+            active = rng.random(compact.source.size) > 0.3
+            assert compact.sweep(active) == reference.sweep(active)
+            compact.age_messages(~active, 0.01)
+            reference.age_messages(~active, 0.01)
+        for name in ('local_precision', 'local_information',
+                     'message_precision', 'message_information'):
+            np.testing.assert_array_equal(
+                getattr(compact, name), getattr(reference, name)
+            )
+        np.testing.assert_array_equal(compact.belief().mean, reference.belief().mean)
+        np.testing.assert_array_equal(
+            compact.belief().variance, reference.belief().variance
+        )
+
+
+@pytest.mark.parametrize('bad_edges', (
+    np.array([[-1, 0]]), np.array([[0, 3]]), np.array([[0.0, 1.0]]),
+))
+def test_invalid_endpoints_are_rejected_before_unsigned_cast(bad_edges):
+    graph = replace(_line_graph(3), edges=bad_edges, edge_cost=np.ones(1))
+    with pytest.raises(ValueError, match='endpoints'):
+        GaussianBeliefPropagation(graph, mean=0.3, variance=0.04)

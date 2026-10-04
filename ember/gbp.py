@@ -42,6 +42,37 @@ class GBPResult:
     converged: bool
 
 
+def topology_index_dtype(count: int) -> np.dtype:
+    """Smallest supported unsigned index for ``count`` zero-based entries.
+
+    Endpoints and reverse-message indices have independent bounds. Check the
+    bound before casting so the 65,536-entry boundary cannot silently wrap.
+    """
+    if not isinstance(count, (int, np.integer)) or count < 0:
+        raise ValueError("index count must be a nonnegative integer")
+    for dtype in (np.uint16, np.uint32, np.uint64):
+        if count <= int(np.iinfo(dtype).max) + 1:
+            return np.dtype(dtype)
+    raise ValueError("index count exceeds uint64 range")
+
+
+def gbp_storage_bytes(nodes: int, edges: int) -> int:
+    """Aligned retained numeric GBP bytes, excluding host graph and scratch."""
+    endpoint_bytes = topology_index_dtype(nodes).itemsize
+    reverse_bytes = topology_index_dtype(2 * edges).itemsize
+    sizes = (
+        8 * nodes, 8 * nodes,
+        2 * edges * endpoint_bytes, 2 * edges * endpoint_bytes,
+        2 * edges * reverse_bytes,
+        16 * edges, 16 * edges, 16 * edges,
+    )
+    used = 0
+    for size in sizes:
+        used = (used + 7) & ~7
+        used += size
+    return used
+
+
 class GaussianBeliefPropagation:
     """Loopy GBP with deterministic or caller-selected asynchronous updates."""
 
@@ -62,14 +93,26 @@ class GaussianBeliefPropagation:
         self.local_precision = np.full(graph.n_nodes, 1.0 / variance)
         self.local_information = np.full(graph.n_nodes, mean / variance)
 
-        edges = np.asarray(graph.edges, dtype=np.int64)
+        edges = np.asarray(graph.edges)
+        if edges.size and (
+            edges.ndim != 2 or edges.shape[1] != 2
+            or not np.issubdtype(edges.dtype, np.integer)
+            or np.any(edges < 0) or np.any(edges >= graph.n_nodes)
+        ):
+            raise ValueError("graph edges must have valid integer endpoints")
+        endpoint_dtype = topology_index_dtype(graph.n_nodes)
+        reverse_dtype = topology_index_dtype(2 * graph.n_edges)
         if edges.size:
-            self.source = np.concatenate((edges[:, 0], edges[:, 1]))
-            self.target = np.concatenate((edges[:, 1], edges[:, 0]))
+            self.source = np.concatenate((edges[:, 0], edges[:, 1])).astype(
+                endpoint_dtype
+            )
+            self.target = np.concatenate((edges[:, 1], edges[:, 0])).astype(
+                endpoint_dtype
+            )
             count = edges.shape[0]
             self.reverse = np.concatenate(
                 (np.arange(count, 2 * count), np.arange(count))
-            )
+            ).astype(reverse_dtype)
             difficulty = np.asarray(graph.edge_cost, dtype=np.float64)
             scale = difficulty / max(float(np.median(difficulty)), 1.0e-9)
             scale = np.maximum(scale, 1.0e-6)
@@ -77,9 +120,9 @@ class GaussianBeliefPropagation:
                 (scale, scale)
             )
         else:
-            self.source = np.zeros(0, dtype=np.int64)
-            self.target = np.zeros(0, dtype=np.int64)
-            self.reverse = np.zeros(0, dtype=np.int64)
+            self.source = np.zeros(0, dtype=endpoint_dtype)
+            self.target = np.zeros(0, dtype=endpoint_dtype)
+            self.reverse = np.zeros(0, dtype=reverse_dtype)
             self.edge_variance = np.zeros(0)
         self.message_precision = np.zeros(self.source.size)
         self.message_information = np.zeros(self.source.size)

@@ -468,3 +468,19 @@ before Python metadata and temporary allocations. Analytical cycle accounting is
 not calibrated hardware timing. Continuous geometry/PDE coupling, coupled
 localization factors, full sensors, calibrated tenability, trained acceleration
 and emulator measurements remain open. The full research project is unfinished.
+
+
+## Lossless topology memory reduction — 2026-10-04
+
+GBP now validates graph endpoints before storing endpoint and reverse-message
+indices in the smallest supported unsigned width. Floating-point belief arithmetic
+is unchanged. Physical arena capacity is calculated from aligned retained buffers
+and the integer router's transition bound.
+
+All 473 tests and runtime Ruff pass. Disclosed seed 7 and seed 42 physical replays
+still reach 4/4 and 8/8 target sites; all 40 mission behavior metrics match their
+previous runs exactly. Numeric peaks fall from 1,361,628 to 984,756 bytes (seed 7)
+and from 1,230,276 to 891,588 bytes (seed 42), reductions of 27.7% and 27.5%.
+Allocated arena capacity also falls by about 30%. The 200 KiB gate remains unmet,
+and host graph, scratch, packet/provenance metadata and interpreter memory remain
+additional. See [the tracked evidence and reproduction commands](docs/compact-topology.md).
