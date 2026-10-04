@@ -22,7 +22,8 @@ from .floorplan import build_floorplan
 from .mjcf import settled_poses, to_mjcf, to_settled_mjcf
 from .params import CascadeParams
 
-# Importing .render first fixes the GL backend before mujoco is loaded.
+# The package initializer selected the GL backend before this module (and thus
+# MuJoCo) was imported.  Importing it from .render would already be too late.
 from .render import CameraView, contact_sheet, render_scene, save_png
 from .structure import MemberKind, build_structure
 
@@ -59,9 +60,7 @@ def build_scene(
     if cutaway:
         import dataclasses
 
-        keep = {
-            m.name for m in structure.members if m.kind not in _CUTAWAY_HIDDEN
-        }
+        keep = {m.name for m in structure.members if m.kind not in _CUTAWAY_HIDDEN}
         structure = dataclasses.replace(
             structure,
             members=tuple(m for m in structure.members if m.name in keep),

@@ -123,9 +123,8 @@ def compute_damage(
     for weld in structure.welds:
         a_in = weld.body_a in inside
         b_in = weld.body_b in inside if weld.body_b is not None else False
-        touches_destroyed = (
-            weld.body_a in destroyed_set
-            or (weld.body_b is not None and weld.body_b in destroyed_set)
+        touches_destroyed = weld.body_a in destroyed_set or (
+            weld.body_b is not None and weld.body_b in destroyed_set
         )
         # A weld to the world counts as "outside", so a freed member's ground
         # fixing is correctly severed.
@@ -142,15 +141,17 @@ def compute_damage(
     )
 
 
-def _farthest_corner_distance(
-    bay: object, center: tuple[float, float, float]
-) -> float:
+def _farthest_corner_distance(bay: object, center: tuple[float, float, float]) -> float:
     """Distance from `center` to the farthest horizontal corner of `bay`."""
     half_x = 0.5 * bay.size[0]
     half_y = 0.5 * bay.size[1]
     return max(
-        float(np.hypot(bay.center[0] + sx * half_x - center[0],
-                       bay.center[1] + sy * half_y - center[1]))
+        float(
+            np.hypot(
+                bay.center[0] + sx * half_x - center[0],
+                bay.center[1] + sy * half_y - center[1],
+            )
+        )
         for sx in (-1.0, 1.0)
         for sy in (-1.0, 1.0)
     )
@@ -178,9 +179,7 @@ def _bay_key(slab_name: str) -> str:
     return head if tail.isdigit() and head else slab_name
 
 
-def _unsupports_a_slab(
-    supports: dict[str, set[str]], destroyed: set[str]
-) -> bool:
+def _unsupports_a_slab(supports: dict[str, set[str]], destroyed: set[str]) -> bool:
     """True if some slab has lost every column beneath it."""
     return any(cols and cols <= destroyed for cols in supports.values())
 
@@ -198,9 +197,7 @@ def sample_damage(
     """
     rng = stage_rng(seed, "collapse")
     ground = [
-        m
-        for m in structure.members
-        if m.kind is MemberKind.COLUMN and m.storey == 0
+        m for m in structure.members if m.kind is MemberKind.COLUMN and m.storey == 0
     ]
     bays = [m for m in structure.members if m.kind is MemberKind.SLAB and m.storey == 0]
     if not ground or not bays:
@@ -208,8 +205,8 @@ def sample_damage(
 
     supports = slab_supports(structure)
     total = len(ground)
-    lo = max(1, int(round(params.min_destroyed_column_fraction * total)))
-    hi = max(lo, int(round(params.max_destroyed_column_fraction * total)))
+    lo = max(1, round(params.min_destroyed_column_fraction * total))
+    hi = max(lo, round(params.max_destroyed_column_fraction * total))
 
     best: BlastDamage | None = None
     best_hit = -1

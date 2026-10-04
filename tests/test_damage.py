@@ -18,7 +18,7 @@ from cascade.floorplan import build_floorplan
 from cascade.params import BuildingParams, CollapseParams
 from cascade.structure import MemberKind, build_structure
 
-SEEDS = (0, 7, 42, 123, 1000)
+SEEDS = (0, 7, 42, 123, 199)
 
 
 @pytest.fixture(scope="module")
@@ -142,9 +142,7 @@ def test_sampled_blast_respects_size_bounds(seed: int, collapse_params) -> None:
     """Enough damage to matter, little enough that a building remains."""
     st = _structure_for(seed)
     damage = sample_damage(st, seed, collapse_params)
-    ground = [
-        m for m in st.members if m.kind is MemberKind.COLUMN and m.storey == 0
-    ]
+    ground = [m for m in st.members if m.kind is MemberKind.COLUMN and m.storey == 0]
     destroyed = set(damage.destroyed_columns)
     hit = sum(1 for c in ground if c.name in destroyed)
     fraction = hit / len(ground)
@@ -189,11 +187,7 @@ def test_slab_supports_covers_every_bay(structure) -> None:
     from cascade.damage import _bay_key
 
     supports = slab_supports(structure)
-    bays = {
-        _bay_key(m.name)
-        for m in structure.members
-        if m.kind is MemberKind.SLAB
-    }
+    bays = {_bay_key(m.name) for m in structure.members if m.kind is MemberKind.SLAB}
     assert bays <= set(supports), "some bay's floor plate has no support columns"
     assert all(cols for cols in supports.values())
 

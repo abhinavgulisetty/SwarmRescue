@@ -128,8 +128,12 @@ ACCENT: tuple[int, int, int] = (214, 132, 78)
 #: Status colours, keyed by `SwarmMember.status`.
 STATUS_COLOURS: dict[str, tuple[int, int, int]] = {
     "arrived": (126, 208, 142),
-    "stalled": (226, 122, 110),
+    "climbing": (232, 163, 92),
     "driving": (168, 178, 196),
+    "fallen": (235, 101, 96),
+    "recovering": (226, 190, 102),
+    "stalled": (206, 112, 108),
+    "unroutable": (196, 105, 104),
     "waiting": (120, 128, 144),
 }
 

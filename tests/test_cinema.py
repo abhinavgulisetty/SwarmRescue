@@ -13,12 +13,16 @@ import numpy as np
 import pytest
 
 from cascade.cinema import (
+    EVENT_SLAB_ALPHA,
+    EVENT_WALL_ALPHA,
     PLAN_WALL_ALPHA,
     WALL_ALPHA,
     PathTrace,
     SwarmCamera,
     Trails,
+    _route_vertices,
     draw_paths,
+    event_style,
     hero_style,
     index_geoms,
     plan_style,
@@ -104,9 +108,18 @@ def test_hero_style_keeps_a_high_cut_intact(scene) -> None:
     assert _alpha(model, "g_slab_s1_b0_0") > 0.5
 
 
-def test_plan_style_removes_every_slab(scene) -> None:
+def test_event_style_exposes_frame_behind_slabs_and_walls(scene) -> None:
     model, _, groups = scene
-    plan_style(model, groups, floor_z=0.0, ceiling_z=50.0)
+    event_style(model, groups)
+    assert _alpha(model, "g_slab_s1_b0_0") == pytest.approx(EVENT_SLAB_ALPHA)
+    assert _alpha(model, "g_wall_s0_r0_x") == pytest.approx(EVENT_WALL_ALPHA)
+    assert _alpha(model, "g_col_s0_n0") > 0.9
+    assert _alpha(model, "robot0_chassis") > 0.9
+
+
+def test_plan_style_removes_every_slab(scene) -> None:
+    model, data, groups = scene
+    plan_style(model, data, groups, floor_z=0.0, ceiling_z=50.0)
     assert _alpha(model, "g_slab_s1_b0_0") == pytest.approx(0.0)
     assert _alpha(model, "g_wall_s0_r0_x") == pytest.approx(PLAN_WALL_ALPHA)
 
@@ -118,16 +131,16 @@ def test_plan_style_shows_one_storey_only(scene) -> None:
     watching a robot on the top floor meant looking at four sets of partitions
     stacked in projection with the robot lost somewhere inside.
     """
-    model, _, groups = scene
-    plan_style(model, groups, floor_z=0.2, ceiling_z=1.95)
+    model, data, groups = scene
+    plan_style(model, data, groups, floor_z=0.2, ceiling_z=1.95)
     assert _alpha(model, "g_wall_s0_r0_x") == pytest.approx(PLAN_WALL_ALPHA)
     assert _alpha(model, "g_wall_s1_r0_x") == pytest.approx(0.0)
 
 
 def test_plan_style_hides_the_storey_below(scene) -> None:
     """The slice must not reach back down through this storey's floor."""
-    model, _, groups = scene
-    plan_style(model, groups, floor_z=3.2, ceiling_z=4.95)
+    model, data, groups = scene
+    plan_style(model, data, groups, floor_z=3.2, ceiling_z=4.95)
     assert _alpha(model, "g_wall_s1_r0_x") == pytest.approx(PLAN_WALL_ALPHA)
     assert _alpha(model, "g_wall_s0_r0_x") == pytest.approx(0.0)
 
@@ -142,13 +155,27 @@ def test_plan_view_frames_the_storey_it_is_of(scene) -> None:
 
 def test_styling_never_hides_a_robot(scene) -> None:
     """Whatever else the camera does, the subject stays on screen."""
-    model, _, groups = scene
+    model, data, groups = scene
     for apply in (
         lambda: hero_style(model, groups, 0.5),
-        lambda: plan_style(model, groups, 0.0, 0.5),
+        lambda: plan_style(model, data, groups, 0.0, 0.5),
     ):
         apply()
         assert _alpha(model, "robot0_chassis") > 0.9
+
+
+def test_plan_style_hides_a_robot_on_another_storey(scene) -> None:
+    """A tactical slice must not project robots from other floors into it."""
+    model, data, groups = scene
+    joint = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "robot0_root")
+    data.qpos[model.jnt_qposadr[joint] + 2] = 3.2
+    mujoco.mj_forward(model, data)
+
+    plan_style(model, data, groups, floor_z=0.0, ceiling_z=2.95)
+    assert _alpha(model, "robot0_chassis") == pytest.approx(0.0)
+
+    plan_style(model, data, groups, floor_z=2.95, ceiling_z=5.95)
+    assert _alpha(model, "robot0_chassis") > 0.9
 
 
 # --- camera -------------------------------------------------------------------
@@ -266,6 +293,28 @@ def test_draw_paths_adds_geometry_to_the_scene(scene) -> None:
         renderer.close()
 
 
+def test_draw_paths_marks_the_route_destination(scene) -> None:
+    model, data, _ = scene
+    renderer = mujoco.Renderer(model, height=64, width=64)
+    try:
+        renderer.update_scene(data)
+        before = renderer.scene.ngeom
+        draw_paths(
+            renderer.scene,
+            [
+                PathTrace(
+                    livery=(0.2, 0.75, 0.95),
+                    route=np.asarray(((0.0, 0.0, 0.0), (1.0, 0.0, 0.0))),
+                    trail=np.zeros((0, 3)),
+                )
+            ],
+        )
+        # One route segment plus a mast and beacon sphere.
+        assert renderer.scene.ngeom - before >= 3
+    finally:
+        renderer.close()
+
+
 def test_draw_paths_survives_a_full_geom_buffer(scene) -> None:
     """Running out of room must drop lines, not raise or corrupt the scene."""
     model, data, _ = scene
@@ -285,3 +334,64 @@ def test_draw_paths_survives_a_full_geom_buffer(scene) -> None:
         assert renderer.scene.ngeom <= renderer.scene.maxgeom
     finally:
         renderer.close()
+
+
+def test_draw_paths_filters_segments_outside_the_storey_slice(scene) -> None:
+    """The plan pane must not flatten every storey's route into one drawing."""
+    model, data, _ = scene
+    renderer = mujoco.Renderer(model, height=64, width=64)
+    trace = PathTrace(
+        livery=(1.0, 0.5, 0.1),
+        route=np.zeros((0, 3)),
+        trail=np.array(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [2.0, 0.0, 3.0],
+                [3.0, 0.0, 3.0],
+            ]
+        ),
+    )
+    try:
+        renderer.update_scene(data)
+        before = renderer.scene.ngeom
+        draw_paths(renderer.scene, [trace], z_range=(2.95, 5.95))
+        filtered = renderer.scene.ngeom - before
+
+        renderer.update_scene(data)
+        before = renderer.scene.ngeom
+        draw_paths(renderer.scene, [trace])
+        unfiltered = renderer.scene.ngeom - before
+        assert 0 < filtered < unfiltered
+    finally:
+        renderer.close()
+
+
+def test_route_thinning_keeps_turns_and_the_final_goal() -> None:
+    route = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [2.0, 1.0, 0.0],
+            [2.0, 2.0, 0.0],
+            [3.0, 2.0, 0.0],
+        ]
+    )
+    kept = _route_vertices(route)
+
+    assert any(np.array_equal(point, route[2]) for point in kept)
+    assert any(np.array_equal(point, route[4]) for point in kept)
+    np.testing.assert_array_equal(kept[-1], route[-1])
+
+
+def test_camera_reset_cuts_directly_to_the_new_subject() -> None:
+    camera = SwarmCamera(footprint_m=(24.0, 18.0), smoothing=0.01)
+    camera.update(np.array([1.0, 1.0, 0.0]), np.array([[1.0, 1.0, 0.0]]))
+    camera.reset()
+
+    view = camera.update(
+        np.array([20.0, 15.0, 6.0]),
+        np.array([[20.0, 15.0, 6.0]]),
+    )
+    assert view.lookat == pytest.approx((20.0, 15.0, 6.0))

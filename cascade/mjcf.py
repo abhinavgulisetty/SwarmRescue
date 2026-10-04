@@ -212,7 +212,9 @@ SNAP_TOLERANCE_M: float = 0.12
 SNAP_TOLERANCE_COS: float = 0.9986
 
 
-def settled_poses(model, data, structure: Structure) -> dict[str, tuple]:
+def settled_poses(
+    model, data, structure: Structure, *, snap_to_authored: bool = True
+) -> dict[str, tuple]:
     """Read each surviving member's world pose out of a settled MjData."""
     import mujoco
     import numpy as np
@@ -233,7 +235,11 @@ def settled_poses(model, data, structure: Structure) -> dict[str, tuple]:
         authored_quat = np.asarray(member.quat, dtype=np.float64)
         moved = float(np.linalg.norm(position - authored_pos))
         turned = abs(float(authored_quat @ quat))
-        if moved <= SNAP_TOLERANCE_M and turned >= SNAP_TOLERANCE_COS:
+        if (
+            snap_to_authored
+            and moved <= SNAP_TOLERANCE_M
+            and turned >= SNAP_TOLERANCE_COS
+        ):
             position, quat = authored_pos, authored_quat
 
         out[member.name] = (

@@ -8,6 +8,7 @@ rotation sign error and the missing floor-level landings.
 from __future__ import annotations
 
 import math
+from itertools import pairwise
 
 import mujoco
 import numpy as np
@@ -15,6 +16,8 @@ import pytest
 
 from cascade.extract import (
     GRID_MARGIN_M,
+    TraversabilityGraph,
+    VoxelGrid,
     build_graph,
     dijkstra_from,
     height_map,
@@ -84,7 +87,7 @@ def test_thin_walls_are_rasterized(world) -> None:
     Centre-sampling missed most walls in the building, and the planner
     happily routed through them.
     """
-    params, plan, grid, _ = world
+    params, _, grid, _ = world
     storey_mid = 0.5 * params.building.storey_height_m
     k = int((storey_mid - grid.origin[2]) / grid.cell[2])
     # A horizontal slice through a storey must show interior structure, not a
@@ -112,9 +115,7 @@ def test_graph_is_non_trivial(world) -> None:
 def test_edges_respect_the_rise_limit(world) -> None:
     params, _, grid, graph = world
     positions = graph.world_positions()
-    rise = np.abs(
-        positions[graph.edges[:, 0], 2] - positions[graph.edges[:, 1], 2]
-    )
+    rise = np.abs(positions[graph.edges[:, 0], 2] - positions[graph.edges[:, 1], 2])
     slope = params.traversability.max_slope_deg
     limit = (
         max(
@@ -187,13 +188,15 @@ def test_shortest_path_is_connected(world) -> None:
     _, plan, _, graph = world
     door = plan.exits[0]
     start = nearest_node(graph, (door.center[0], door.center[1], 0.05))
-    goal = nearest_node(graph, (plan.stairwells()[0].rect.center[0],
-                                plan.stairwells()[0].rect.center[1], 3.1))
+    goal = nearest_node(
+        graph,
+        (plan.stairwells()[0].rect.center[0], plan.stairwells()[0].rect.center[1], 3.1),
+    )
     route = shortest_path(graph, start, goal)
     assert route
     edges = {(int(a), int(b)) for a, b in graph.edges}
     edges |= {(b, a) for a, b in edges}
-    for a, b in zip(route[:-1], route[1:], strict=True):
+    for a, b in pairwise(route):
         assert (a, b) in edges, "route uses a move that is not an edge"
 
 
@@ -247,11 +250,22 @@ def test_a_slot_wider_than_the_robot_is_traversable() -> None:
     assert _slot_is_traversable(1.20)
 
 
-def test_unreachable_goal_returns_empty_path(world) -> None:
-    _, _, _, graph = world
-    # Node 0 to itself is trivially reachable; a negative index is not a node,
-    # so use an isolated synthetic case instead.
-    assert shortest_path(graph, 0, 0) == [0]
+def test_unreachable_goal_returns_empty_path() -> None:
+    occupied = np.zeros((2, 1, 1), dtype=bool)
+    grid = VoxelGrid(
+        origin=(0.0, 0.0, 0.0),
+        cell=(1.0, 1.0, 1.0),
+        occupied=occupied,
+        blocked=occupied.copy(),
+    )
+    graph = TraversabilityGraph(
+        grid=grid,
+        cells=np.asarray(((0, 0, 0), (1, 0, 0)), dtype=np.int32),
+        surface_z=np.asarray((0.0, 0.0), dtype=np.float64),
+        edges=np.zeros((0, 2), dtype=np.int32),
+        edge_cost=np.zeros(0, dtype=np.float64),
+    )
+    assert shortest_path(graph, 0, 1) == []
 
 
 # --- ramps, ledges, and edges -------------------------------------------------
@@ -296,7 +310,9 @@ def _tops_out(model: mujoco.MjModel, height_m: float) -> bool:
     if graph.n_nodes == 0:
         return False
     positions = graph.world_positions()
-    start = int(np.argmin(np.linalg.norm(positions - np.array([0.4, 2.0, 0.0]), axis=1)))
+    start = int(
+        np.argmin(np.linalg.norm(positions - np.array([0.4, 2.0, 0.0]), axis=1))
+    )
     dist, _ = dijkstra_from(graph, start)
     return bool((np.isfinite(dist) & (positions[:, 2] > height_m)).any())
 

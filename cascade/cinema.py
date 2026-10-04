@@ -31,6 +31,7 @@ telemetry drawn on the finished pixels live in `cascade.hud`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from itertools import pairwise
 
 import mujoco
 import numpy as np
@@ -45,6 +46,10 @@ _MEMBER_PREFIXES: tuple[str, ...] = ("col_", "beam_", "slab_", "wall_", "stair_"
 WALL_ALPHA: float = 0.26
 #: Alpha for walls in the plan pane, where they are the only context left.
 PLAN_WALL_ALPHA: float = 0.75
+#: Event shots retain the whole frame but make broad occluding surfaces almost
+#: transparent, so the viewer sees columns and beams fail instead of a slab.
+EVENT_SLAB_ALPHA: float = 0.06
+EVENT_WALL_ALPHA: float = 0.10
 #: Height of the cut above the robot being followed, metres.  Clears the
 #: robot's beacon and the door heads, and stays under the next slab up.
 CEILING_MARGIN_M: float = 1.75
@@ -98,9 +103,7 @@ def index_geoms(model: mujoco.MjModel, data: mujoco.MjData) -> GeomGroups:
     for geom in range(model.ngeom):
         name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, geom) or ""
         matid = int(model.geom_matid[geom])
-        base[geom] = (
-            model.mat_rgba[matid] if matid >= 0 else model.geom_rgba[geom]
-        )
+        base[geom] = model.mat_rgba[matid] if matid >= 0 else model.geom_rgba[geom]
 
         # The half-extent *along world z*, not the largest half-extent.  Using
         # the largest is a subtle and total failure: a floor slab is 6 m across
@@ -141,10 +144,10 @@ def _apply(model: mujoco.MjModel, groups: GeomGroups, alpha: np.ndarray) -> None
     """Write per-geom colours, detaching materials so they take effect."""
     rgba = groups.base_rgba.copy()
     rgba[:, 3] = alpha
-    structural = groups.structural
-    if structural.size:
-        model.geom_matid[structural] = -1
-        model.geom_rgba[structural] = rgba[structural]
+    styled = np.concatenate((groups.structural, groups.robots))
+    if styled.size:
+        model.geom_matid[styled] = -1
+        model.geom_rgba[styled] = rgba[styled]
 
 
 def _cut_above(groups: GeomGroups, ceiling_z: float) -> np.ndarray:
@@ -157,9 +160,7 @@ def _cut_above(groups: GeomGroups, ceiling_z: float) -> np.ndarray:
     return alpha
 
 
-def hero_style(
-    model: mujoco.MjModel, groups: GeomGroups, ceiling_z: float
-) -> None:
+def hero_style(model: mujoco.MjModel, groups: GeomGroups, ceiling_z: float) -> None:
     """Cut the building off above `ceiling_z` and sheer the walls below it."""
     if not groups.structural.size:
         return
@@ -169,8 +170,33 @@ def hero_style(
     _apply(model, groups, alpha)
 
 
+def event_style(model: mujoco.MjModel, groups: GeomGroups) -> None:
+    """Expose the structural frame for a short collapse event shot."""
+
+    if not groups.structural.size:
+        return
+    alpha = groups.base_rgba[:, 3].copy()
+    alpha[groups.slabs] = EVENT_SLAB_ALPHA
+    alpha[groups.walls] = EVENT_WALL_ALPHA
+    _apply(model, groups, alpha)
+
+
+def highlight_members(model: mujoco.MjModel, names: set[str]) -> None:
+    """Tint failed structural members so the released weld is visible."""
+
+    for name in names:
+        geom = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, f"g_{name}")
+        if geom >= 0:
+            model.geom_matid[geom] = -1
+            model.geom_rgba[geom] = (1.0, 0.08, 0.02, 1.0)
+
+
 def plan_style(
-    model: mujoco.MjModel, groups: GeomGroups, floor_z: float, ceiling_z: float
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    groups: GeomGroups,
+    floor_z: float,
+    ceiling_z: float,
 ) -> None:
     """Top-down view of the one storey between `floor_z` and `ceiling_z`.
 
@@ -190,14 +216,23 @@ def plan_style(
     alpha = np.zeros_like(groups.base_rgba[:, 3])
     structural = groups.structural
     inside = structural[
-        (groups.high_z[structural] > floor_z)
-        & (groups.low_z[structural] < ceiling_z)
+        (groups.high_z[structural] > floor_z) & (groups.low_z[structural] < ceiling_z)
     ]
     alpha[inside] = groups.base_rgba[inside, 3]
     if groups.slabs.size:
         alpha[groups.slabs] = 0.0
     kept_walls = np.intersect1d(inside, groups.walls, assume_unique=False)
     alpha[kept_walls] = PLAN_WALL_ALPHA
+    # Robot geometry is dynamic, so the structural bounds cached by
+    # `index_geoms` cannot decide which storey it occupies.  Use the root body
+    # position from this frame and hide markers on every other floor.  Without
+    # this, a plan labelled "storey 2" showed four floating lollipops belonging
+    # to four different heights.
+    for geom in groups.robots:
+        body = int(model.geom_bodyid[geom])
+        body_z = float(data.xpos[body][2])
+        if floor_z <= body_z < ceiling_z:
+            alpha[geom] = groups.base_rgba[geom, 3]
     _apply(model, groups, alpha)
 
 
@@ -219,6 +254,10 @@ ROUTE_STRIDE: int = 4
 #: Alpha of the planned route.  Present but recessive: it is context for the
 #: trail, not the subject.
 ROUTE_ALPHA: float = 0.40
+#: Destination beacons float above the floor so route endpoints stay obvious
+#: even behind low rubble in the dollhouse view.
+GOAL_MARKER_HEIGHT_M: float = 0.62
+GOAL_MARKER_RADIUS_M: float = 0.16
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,6 +267,7 @@ class PathTrace:
     livery: tuple[float, float, float]
     route: np.ndarray
     trail: np.ndarray
+    rejected_route: np.ndarray | None = None
 
 
 @dataclass
@@ -292,14 +332,84 @@ def _connect(scene, start, end, rgba, width: float) -> bool:
     return True
 
 
-def _polyline(scene, points: np.ndarray, rgba, width: float) -> None:
-    lifted = points + np.array([0.0, 0.0, LINE_LIFT_M])
-    for start, end in zip(lifted[:-1], lifted[1:], strict=True):
+def _polyline(
+    scene,
+    points: np.ndarray,
+    rgba,
+    width: float,
+    z_range: tuple[float, float] | None = None,
+) -> None:
+    lift = np.array([0.0, 0.0, LINE_LIFT_M])
+    for raw_start, raw_end in pairwise(points):
+        if z_range is not None:
+            low, high = z_range
+            # Do not join two visible fragments across an excluded storey.  A
+            # segment belongs to the slice only when both endpoints do.
+            if not (low <= raw_start[2] < high and low <= raw_end[2] < high):
+                continue
+        start, end = raw_start + lift, raw_end + lift
         if not _connect(scene, start, end, rgba, width):
             return
 
 
-def draw_paths(scene, traces: list[PathTrace]) -> None:
+def _dashed_polyline(
+    scene,
+    points: np.ndarray,
+    rgba,
+    width: float,
+    z_range: tuple[float, float] | None = None,
+) -> None:
+    """Draw alternating segments so a rejected route remains unambiguous."""
+
+    vertices = _route_vertices(points)
+    lift = np.array([0.0, 0.0, LINE_LIFT_M * 1.35])
+    for index, (raw_start, raw_end) in enumerate(pairwise(vertices)):
+        if index % 2:
+            continue
+        if z_range is not None:
+            low, high = z_range
+            if not (low <= raw_start[2] < high and low <= raw_end[2] < high):
+                continue
+        if not _connect(scene, raw_start + lift, raw_end + lift, rgba, width):
+            return
+
+
+def _draw_goal_marker(
+    scene,
+    point: np.ndarray,
+    colour: tuple[float, float, float],
+    z_range: tuple[float, float] | None,
+) -> None:
+    """Draw a colour-matched mast and beacon at one route destination."""
+
+    if z_range is not None and not (z_range[0] <= point[2] < z_range[1]):
+        return
+    base = np.asarray(point, dtype=np.float64).copy()
+    base[2] += LINE_LIFT_M
+    top = base.copy()
+    top[2] += GOAL_MARKER_HEIGHT_M
+    if not _connect(scene, base, top, (*colour, 0.9), ROUTE_WIDTH_M * 1.2):
+        return
+    if scene.ngeom >= scene.maxgeom:
+        return
+    geom = scene.geoms[scene.ngeom]
+    mujoco.mjv_initGeom(
+        geom,
+        mujoco.mjtGeom.mjGEOM_SPHERE,
+        np.full(3, GOAL_MARKER_RADIUS_M),
+        top,
+        np.eye(3).ravel(),
+        np.asarray((*colour, 0.82), dtype=np.float32),
+    )
+    scene.ngeom += 1
+
+
+def draw_paths(
+    scene,
+    traces: list[PathTrace],
+    *,
+    z_range: tuple[float, float] | None = None,
+) -> None:
     """Overlay every robot's planned route and driven trail onto `scene`.
 
     This is what turns the demo from footage of things moving into a claim
@@ -309,15 +419,77 @@ def draw_paths(scene, traces: list[PathTrace]) -> None:
     """
     for trace in traces:
         colour = tuple(trace.livery)
+        if trace.rejected_route is not None and trace.rejected_route.shape[0] > 1:
+            _dashed_polyline(
+                scene,
+                trace.rejected_route,
+                (1.0, 0.10, 0.06, 0.9),
+                ROUTE_WIDTH_M * 1.35,
+                z_range,
+            )
         if trace.route.shape[0] > 1:
+            route_colour = (
+                (0.16, 0.92, 0.42) if trace.rejected_route is not None else colour
+            )
             _polyline(
                 scene,
-                trace.route[:: ROUTE_STRIDE],
-                (*colour, ROUTE_ALPHA),
-                ROUTE_WIDTH_M,
+                _route_vertices(trace.route),
+                (
+                    *route_colour,
+                    0.9 if trace.rejected_route is not None else ROUTE_ALPHA,
+                ),
+                ROUTE_WIDTH_M * (1.35 if trace.rejected_route is not None else 1.0),
+                z_range,
             )
         if trace.trail.shape[0] > 1:
-            _polyline(scene, trace.trail, (*colour, 1.0), TRAIL_WIDTH_M)
+            _polyline(
+                scene,
+                trace.trail,
+                (*colour, 1.0),
+                TRAIL_WIDTH_M,
+                z_range,
+            )
+        if trace.route.shape[0] > 0:
+            _draw_goal_marker(
+                scene,
+                trace.route[-1],
+                colour,
+                z_range,
+            )
+
+
+def _route_vertices(points: np.ndarray) -> np.ndarray:
+    """Thin a route without erasing its turns or final goal.
+
+    Blind stride sampling draws a chord across any corner that happens to
+    fall between samples and commonly drops the final waypoint.  That makes
+    the visual evidence contradict the controller's real route precisely at
+    the places a viewer most needs to inspect.  Keep the regular samples for
+    long straight runs, plus every change of direction and both endpoints.
+    """
+    route = np.asarray(points, dtype=np.float64)
+    if route.shape[0] <= 2:
+        return route
+    keep = {0, route.shape[0] - 1}
+    keep.update(range(0, route.shape[0], ROUTE_STRIDE))
+    segments = np.diff(route, axis=0)
+    length = np.linalg.norm(segments, axis=1)
+    for index in range(1, route.shape[0] - 1):
+        before = segments[index - 1]
+        after = segments[index]
+        if length[index - 1] < 1e-9 or length[index] < 1e-9:
+            keep.add(index)
+            continue
+        alignment = float(
+            np.clip(
+                np.dot(before, after) / (length[index - 1] * length[index]),
+                -1.0,
+                1.0,
+            )
+        )
+        if alignment < 1.0 - 1e-6:
+            keep.add(index)
+    return route[np.asarray(sorted(keep), dtype=np.int64)]
 
 
 # --- cameras ------------------------------------------------------------------
@@ -355,6 +527,11 @@ class SwarmCamera:
     _lookat: np.ndarray | None = field(default=None, repr=False)
     _distance: float | None = field(default=None, repr=False)
 
+    def reset(self) -> None:
+        """Start a clean composition after an intentional subject cut."""
+        self._lookat = None
+        self._distance = None
+
     def update(self, subject: np.ndarray, others: np.ndarray) -> CameraView:
         """Advance the orbit and reframe around `subject` and its neighbours.
 
@@ -383,9 +560,7 @@ class SwarmCamera:
                 else 0.0
             )
 
-        want_distance = min(
-            self.max_distance_m, max(self.min_distance_m, spread + 6.0)
-        )
+        want_distance = min(self.max_distance_m, max(self.min_distance_m, spread + 6.0))
         if self._lookat is None or self._distance is None:
             self._lookat = target.copy()
             self._distance = want_distance

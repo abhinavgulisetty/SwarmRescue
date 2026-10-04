@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "status": "frozen_before_held_out",
+  "frozen_at_utc": "2026-09-29T00:00:00Z",
+  "development_evidence": {
+    "ablation_worlds": 20,
+    "lambda_selection_worlds": 20,
+    "procedural_worlds": 8,
+    "procedural_noise_replicates": 3
+  },
+  "evaluation": {
+    "world_seed_first": 10000,
+    "world_seed_last": 10049,
+    "noise_seeds": [0, 1, 2],
+    "bootstrap_samples": 2000,
+    "confidence_level": 0.95,
+    "bootstrap_seed": 205900510,
+    "robot_count": 8,
+    "survivor_count": 3,
+    "hazard_horizon_s": 120.0,
+    "voi_packet_budget_bytes": 64,
+    "lmdp_control_temperature": 0.25,
+    "uncertainty_beta": 1.0
+  },
+  "claim_gates": {
+    "primary_comparison": "ember_minus_b2_flooding_dijkstra",
+    "primary_metric": "mean_dynamic_exposure_proxy",
+    "superiority_requires_ci_high_below_zero": true,
+    "voi_requires_positive_mean_byte_reduction": true,
+    "nca_speedup_minimum": 2.0,
+    "q16_maximum_desirability_error": 0.001,
+    "q16_route_completion_required": 1.0,
+    "ram_gate_bytes": 204800,
+    "deadline_miss_rate_maximum": 0.05
+  },
+  "validity_boundaries": {
+    "dose_is_iso_13571": false,
+    "collapse_is_physics_derived": false,
+    "mcu_timing_is_emulator_measured": false,
+    "physical_mission_validated": false
+  }
+}

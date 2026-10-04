@@ -7,14 +7,14 @@ new `Rect`s rather than editing one in place.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 #: Tolerance for treating two coordinates as coincident, in metres.  Rect edges
 #: are produced by repeated subdivision, so exact float equality is unsafe.
 EPS_M: float = 1e-9
 
 
-class Axis(str, Enum):
+class Axis(StrEnum):
     """Split/adjacency axis.  `X` means the shared edge is vertical."""
 
     X = "x"
@@ -94,8 +94,7 @@ class Rect:
 
     def contains_point(self, x: float, y: float, tol: float = EPS_M) -> bool:
         return (
-            self.x0 - tol <= x <= self.x1 + tol
-            and self.y0 - tol <= y <= self.y1 + tol
+            self.x0 - tol <= x <= self.x1 + tol and self.y0 - tol <= y <= self.y1 + tol
         )
 
     def overlaps(self, other: Rect, tol: float = EPS_M) -> bool:

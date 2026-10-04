@@ -147,6 +147,8 @@ def rasterize(
     footprint_m: tuple[float, float],
     total_height_m: float,
     params: TraversabilityParams,
+    *,
+    margin_m: float = GRID_MARGIN_M,
 ) -> VoxelGrid:
     """Voxelize every colliding box geom at its current pose.
 
@@ -156,17 +158,19 @@ def rasterize(
     features that make a rubble field interesting.
     """
     width, depth = footprint_m
+    if not math.isfinite(margin_m) or margin_m < 0:
+        raise ValueError("horizontal map margin must be finite and nonnegative")
     cell = (params.voxel_size_m, params.voxel_size_m, params.voxel_height_m)
     # The grid starts one level *below* z = 0 so that the ground itself can be
     # represented as a solid layer.  Without it there is no floor at storey 0:
     # the ground is a plane geom, this rasterizer only handles boxes, and the
     # lowest standable surface in the whole building came out at z = 3.0 --
     # the top of the first slab.
-    origin = (-GRID_MARGIN_M, -GRID_MARGIN_M, -cell[2])
+    origin = (-margin_m, -margin_m, -cell[2])
     shape = (
-        int(math.ceil((width + 2 * GRID_MARGIN_M) / cell[0])),
-        int(math.ceil((depth + 2 * GRID_MARGIN_M) / cell[1])),
-        int(math.ceil((total_height_m + GRID_MARGIN_M) / cell[2])) + 1,
+        math.ceil((width + 2 * margin_m) / cell[0]),
+        math.ceil((depth + 2 * margin_m) / cell[1]),
+        math.ceil((total_height_m + GRID_MARGIN_M) / cell[2]) + 1,
     )
     occupied = np.zeros(shape, dtype=bool)
     # Level 0 spans [-cell_z, 0], so its top face is exactly the ground plane.
@@ -218,9 +222,7 @@ def rasterize(
         # present and correctly placed.
         name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, geom) or ""
         pad = support_pad if name.startswith(_WALKABLE_PREFIX) else robot_pad
-        _mark_box(
-            blocked, origin, cell, center, rot, half, pad, horizontal_only=True
-        )
+        _mark_box(blocked, origin, cell, center, rot, half, pad, horizontal_only=True)
 
     return VoxelGrid(origin=origin, cell=cell, occupied=occupied, blocked=blocked)
 
@@ -284,20 +286,16 @@ def _mark_box(
     lo = center - extent
     hi = center + extent
 
-    start = [
-        max(0, int(math.floor((lo[d] - origin[d]) / cell[d])))
-        for d in range(3)
-    ]
+    start = [max(0, math.floor((lo[d] - origin[d]) / cell[d])) for d in range(3)]
     stop = [
-        min(occupied.shape[d], int(math.ceil((hi[d] - origin[d]) / cell[d])) + 1)
+        min(occupied.shape[d], math.ceil((hi[d] - origin[d]) / cell[d]) + 1)
         for d in range(3)
     ]
     if any(stop[d] <= start[d] for d in range(3)):
         return
 
     axes = [
-        origin[d] + (np.arange(start[d], stop[d]) + 0.5) * cell[d]
-        for d in range(3)
+        origin[d] + (np.arange(start[d], stop[d]) + 0.5) * cell[d] for d in range(3)
     ]
     gx, gy, gz = np.meshgrid(*axes, indexing="ij")
     points = np.stack((gx, gy, gz), axis=-1) - center
@@ -383,7 +381,7 @@ def _standable_cells(
     # configuration-space grid.  Using `occupied` for both is what let the
     # planner thread a 0.42 m-wide robot through a 0.25 m slot.
     blocked = grid.blocked
-    nx, ny, nz = grid.shape
+    _, _, nz = grid.shape
     need = params.clearance_levels
 
     solid = occupied[:, :, :-1]
@@ -626,9 +624,7 @@ def _step_between(
 # --- queries -----------------------------------------------------------------
 
 
-def nearest_node(
-    graph: TraversabilityGraph, point: tuple[float, float, float]
-) -> int:
+def nearest_node(graph: TraversabilityGraph, point: tuple[float, float, float]) -> int:
     """Index of the standable cell closest to `point`."""
     positions = graph.world_positions()
     target = np.asarray(point, dtype=np.float64)
@@ -671,9 +667,7 @@ def dijkstra_from(
     return dist, prev
 
 
-def path_from(
-    dist: np.ndarray, prev: np.ndarray, start: int, goal: int
-) -> list[int]:
+def path_from(dist: np.ndarray, prev: np.ndarray, start: int, goal: int) -> list[int]:
     """Unwind a `dijkstra_from` result into a route.  Empty when unreachable."""
     if not np.isfinite(dist[goal]):
         return []
@@ -683,9 +677,7 @@ def path_from(
     return path[::-1]
 
 
-def shortest_path(
-    graph: TraversabilityGraph, start: int, goal: int
-) -> list[int]:
+def shortest_path(graph: TraversabilityGraph, start: int, goal: int) -> list[int]:
     """Dijkstra over the traversability graph.  Empty when unreachable."""
     dist, prev = dijkstra_from(graph, start)
     return path_from(dist, prev, start, goal)

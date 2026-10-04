@@ -10,9 +10,10 @@ robot should go, without a planner and without a map, is the whole rest of the
 project.
 
 Goal assignment here stratifies the reachable set by storey and sends each
-robot to the costliest cell on one of them.  It is the cheapest thing that
-searches a *building* rather than a floor, and it is a placeholder for the
-value-of-information gossip of SS6, not a claim to be more than one.
+robot a substantial but bounded distance beyond that storey's closest safe
+landing.  It is the cheapest thing that searches a *building* rather than a
+floor, and it is a placeholder for the value-of-information gossip of SS6,
+not a claim to be more than one.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ from .extract import (
 )
 from .floorplan import FloorPlan
 from .params import BuildingParams
-from .robot import RobotSpec, WaypointDriver, build_robot, place_robot
+from .robot import RobotSpec, RobotState, WaypointDriver, build_robot, place_robot
 
 #: Chassis colours, in assignment order.  Chosen to stay distinguishable
 #: against grey concrete and from each other under the scene's dim lighting.
@@ -48,6 +49,10 @@ LIVERIES: tuple[tuple[float, float, float], ...] = (
 
 #: How far outside its exit a robot starts, metres.
 SPAWN_STANDOFF_M: float = 1.2
+#: Final distance outside the facade before a robot drives square through the
+#: opening.  Starting from a laterally offset queue position and aiming
+#: directly at the first indoor graph node cuts the corner through the wall.
+ENTRY_THRESHOLD_M: float = 0.45
 #: Lateral spacing between robots queued at the same exit, metres.  Wider than
 #: the chassis diagonal so they cannot spawn interpenetrating -- two bodies
 #: sharing space resolve with an impulse large enough to put NaN in QACC on
@@ -62,6 +67,31 @@ DEPARTURE_STAGGER_STEPS: int = 1100
 #: offered as a goal, metres.  Wide enough to include the top of a low debris
 #: pile, narrow enough to exclude a stair flight.
 GOAL_FLOOR_TOLERANCE_M: float = 0.20
+#: Maximum extra graph cost spent sweeping a floor after reaching its nearest
+#: certified landing.  Forty flat grid moves are about ten metres.  Without a
+#: bound, the costliest-cell heuristic sent the storey-3 robot on a 262-node
+#: tour through a second, physically fragile staircase even though the safe
+#: stair used by the roof robot already reached that floor.
+GOAL_FLOOR_SEARCH_BUDGET: float = 40.0
+#: A destination is a search site, not a point in the raster margin outside
+#: the facade.  Keep it far enough inside that the full chassis clears the
+#: wall and its floating goal beacon unambiguously marks an interior site.
+GOAL_INTERIOR_MARGIN_M: float = 1.50
+
+#: A robot counts as settled when its chassis z-axis is at least this upright,
+#: as a dot product with world up.  ~18 degrees of tilt.
+SETTLED_UPRIGHT_DOT: float = 0.95
+#: ...and when it is moving slower than this, in m/s and rad/s.
+SETTLED_SPEED_M_S: float = 0.05
+SETTLED_SPIN_RAD_S: float = 0.5
+#: Minimum upward component of an external contact normal that can support a
+#: robot.  This admits the 34-degree stair flights while excluding a chassis
+#: that is merely touching a wall at the apex of a bounce.
+SETTLED_SUPPORT_NORMAL_Z: float = 0.5
+#: ...and has held both for this many consecutive steps.  A robot dropped onto
+#: rubble bounces, and the instant of a bounce's apex satisfies the speed test
+#: while the robot is very much still in the air.
+SETTLED_HOLD_STEPS: int = 50
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +103,7 @@ class Assignment:
     yaw_rad: float
     route: np.ndarray
     goal_storey: int
+    goal_label: str = ""
 
     @property
     def name(self) -> str:
@@ -86,6 +117,11 @@ class SwarmMember:
     assignment: Assignment
     driver: WaypointDriver
     body_id: int = -1
+    #: Index of the root free joint's first velocity DOF, cached alongside
+    #: `body_id` so the settling test does not re-look-up a joint per step.
+    dof_adr: int = -1
+    #: Every geom in the robot's free-joint subtree, for support-contact tests.
+    geom_ids: frozenset[int] = field(default_factory=frozenset)
     visited: set[int] = field(default_factory=set)
     max_height_m: float = 0.0
 
@@ -94,12 +130,12 @@ class SwarmMember:
         return self.assignment.name
 
     @property
+    def state(self) -> RobotState:
+        return self.driver.state
+
+    @property
     def status(self) -> str:
-        if self.driver.finished:
-            return "arrived"
-        if self.driver.stalled:
-            return "stalled"
-        return "driving"
+        return self.driver.state.value
 
     @property
     def progress(self) -> float:
@@ -139,9 +175,15 @@ def _entry_points(
 
 
 def _spawn_pose(
-    plan: FloorPlan, door_index: int, slot: int
+    plan: FloorPlan, door_index: int, slot: int, spawn_z: float
 ) -> tuple[tuple[float, float, float], float]:
-    """Where one robot starts: outside its exit, offset along the facade."""
+    """Where one robot starts: outside its exit, offset along the facade.
+
+    `spawn_z` is the chassis centre height and comes from the platform's own
+    geometry (`RobotSpec.spawn_height_m`).  It used to be a hardcoded 0.12 m,
+    which was below the chassis's resting height and put every robot's wheels
+    inside the ground.
+    """
     door = plan.exits[door_index]
     footprint = plan.footprint
     x, y = door.center
@@ -156,13 +198,73 @@ def _spawn_pose(
 
     if door.axis.value == "x":
         outward = -1.0 if abs(door.at - footprint.x0) < 1e-6 else 1.0
-        pose = (x + outward * standoff, y + shift, 0.12)
+        pose = (x + outward * standoff, y + shift, spawn_z)
         yaw = math.pi if outward > 0 else 0.0
     else:
         outward = -1.0 if abs(door.at - footprint.y0) < 1e-6 else 1.0
-        pose = (x + shift, y + outward * standoff, 0.12)
+        pose = (x + shift, y + outward * standoff, spawn_z)
         yaw = -0.5 * math.pi if outward > 0 else 0.5 * math.pi
     return pose, yaw
+
+
+def _entry_approach(
+    plan: FloorPlan,
+    door_index: int,
+    spawn: tuple[float, float, float],
+    ride_height_m: float,
+) -> np.ndarray:
+    """Route from a queue slot to the doorway without crossing the facade.
+
+    Robots first move parallel to the wall until they are centred on the
+    opening, then approach it along the wall normal.  The old single diagonal
+    from an offset spawn to an indoor node clipped the edge of the entrance.
+    """
+
+    door = plan.exits[door_index]
+    footprint = plan.footprint
+    surface_z = spawn[2] - ride_height_m
+    start = np.asarray((spawn[0], spawn[1], surface_z), dtype=np.float64)
+    x, y = door.center
+    if door.axis.value == "x":
+        outward = -1.0 if abs(door.at - footprint.x0) < 1e-6 else 1.0
+        staged = np.asarray((spawn[0], y, surface_z))
+        threshold = np.asarray((x + outward * ENTRY_THRESHOLD_M, y, surface_z))
+    else:
+        outward = -1.0 if abs(door.at - footprint.y0) < 1e-6 else 1.0
+        staged = np.asarray((x, spawn[1], surface_z))
+        threshold = np.asarray((x, y + outward * ENTRY_THRESHOLD_M, surface_z))
+    points = [start]
+    for point in (staged, threshold):
+        if np.linalg.norm(point - points[-1]) > 0.05:
+            points.append(point)
+    return np.asarray(points)
+
+
+def _goal_label(
+    plan: FloorPlan,
+    position: np.ndarray,
+    storey: int,
+) -> str:
+    """Short semantic destination shown in the HUD."""
+
+    if storey >= len(plan.storeys):
+        return "ROOF · SEARCH"
+    rooms = plan.storeys[storey].rooms
+    room = next(
+        (
+            candidate
+            for candidate in rooms
+            if candidate.rect.contains_point(float(position[0]), float(position[1]))
+        ),
+        min(
+            rooms,
+            key=lambda candidate: (
+                (candidate.rect.center[0] - position[0]) ** 2
+                + (candidate.rect.center[1] - position[1]) ** 2
+            ),
+        ),
+    )
+    return f"S{storey} · {room.kind.value.upper()}-{room.bay}"
 
 
 def choose_goals(
@@ -194,8 +296,10 @@ def choose_goals(
     # route and then slid back down the last flight.  A place worth searching
     # is somewhere a casualty could be lying, which is a floor.
     on_floor = (
-        np.abs(graph.surface_z - np.round(graph.surface_z / storey_height_m)
-               * storey_height_m)
+        np.abs(
+            graph.surface_z
+            - np.round(graph.surface_z / storey_height_m) * storey_height_m
+        )
         <= GOAL_FLOOR_TOLERANCE_M
     )
     reachable = np.isfinite(cost) & on_floor
@@ -230,6 +334,15 @@ def choose_goals(
         if pool.size == 0:
             break
 
+        # Search well beyond the landing, but do not select a remote cell whose
+        # shortest path abandons the already certified vertical backbone for a
+        # much longer staircase.  The graph cost is in flat-cell equivalents,
+        # so this remains independent of the lattice's metric resolution.
+        minimum = float(np.min(cost[pool]))
+        budgeted = pool[cost[pool] <= minimum + GOAL_FLOOR_SEARCH_BUDGET]
+        if budgeted.size:
+            pool = budgeted
+
         taken = taken_per_storey.setdefault(storey, [])
         if taken:
             # Push away from goals already claimed on this storey.
@@ -261,7 +374,9 @@ def plan_swarm(
     """Spawn poses, goals and routes for a swarm of `count` robots."""
     spec = spec or RobotSpec()
     placements = _entry_points(plan, count, entry_doors)
-    poses = [_spawn_pose(plan, door, slot) for door, slot in placements]
+    poses = [
+        _spawn_pose(plan, door, slot, spec.spawn_height_m) for door, slot in placements
+    ]
 
     # One Dijkstra per exit, not per robot: the sweep dominates planning and
     # every robot coming through the same door shares its answer.
@@ -278,6 +393,15 @@ def plan_swarm(
     best_cost = np.full(graph.n_nodes, np.inf)
     for _, dist, _ in solved.values():
         best_cost = np.minimum(best_cost, dist)
+    positions = graph.world_positions()
+    footprint = plan.footprint
+    interior = (
+        (positions[:, 0] >= footprint.x0 + GOAL_INTERIOR_MARGIN_M)
+        & (positions[:, 0] <= footprint.x1 - GOAL_INTERIOR_MARGIN_M)
+        & (positions[:, 1] >= footprint.y0 + GOAL_INTERIOR_MARGIN_M)
+        & (positions[:, 1] <= footprint.y1 - GOAL_INTERIOR_MARGIN_M)
+    )
+    best_cost[~interior] = np.inf
     goals = choose_goals(graph, best_cost, count, building.storey_height_m)
 
     assignments: list[Assignment] = []
@@ -287,9 +411,17 @@ def plan_swarm(
         start, dist, prev = solved[door]
         goal = goals[index % len(goals)] if goals else start
         route = path_from(dist, prev, start, goal)
-        waypoints = (
-            graph.world_positions()[route] if route else np.zeros((0, 3))
-        )
+        if route:
+            graph_route = positions[route]
+            approach = _entry_approach(
+                plan,
+                door,
+                spawn,
+                spec.ride_height_m,
+            )
+            waypoints = np.vstack((approach, graph_route))
+        else:
+            waypoints = np.zeros((0, 3))
         goal_storey = (
             math.floor(graph.surface_z[goal] / building.storey_height_m + 0.25)
             if route
@@ -306,6 +438,11 @@ def plan_swarm(
                 yaw_rad=yaw,
                 route=waypoints,
                 goal_storey=goal_storey,
+                goal_label=(
+                    _goal_label(plan, waypoints[-1], goal_storey)
+                    if len(waypoints)
+                    else "UNROUTABLE"
+                ),
             )
         )
     return assignments
@@ -330,7 +467,18 @@ def swarm_bodies(
 class Swarm:
     """Drives every robot and records where each of them got to."""
 
-    def __init__(self, assignments: list[Assignment]) -> None:
+    def __init__(
+        self,
+        assignments: list[Assignment],
+        *,
+        departure_stagger_steps: int = DEPARTURE_STAGGER_STEPS,
+        cruise_rad_s: float | None = None,
+    ) -> None:
+        if departure_stagger_steps < 0:
+            raise ValueError("departure stagger must be non-negative")
+        if cruise_rad_s is not None and cruise_rad_s <= 0.0:
+            raise ValueError("cruise speed must be positive")
+        driver_options = {} if cruise_rad_s is None else {"cruise_rad_s": cruise_rad_s}
         self.members = [
             SwarmMember(
                 assignment=item,
@@ -341,7 +489,8 @@ class Swarm:
                     # the same door arrive at it together, wedge, and every one
                     # behind the blockage is scored as stalled on geometry that
                     # was never the problem.
-                    start_delay_steps=index * DEPARTURE_STAGGER_STEPS,
+                    start_delay_steps=index * departure_stagger_steps,
+                    **driver_options,
                 ),
             )
             for index, item in enumerate(assignments)
@@ -357,14 +506,102 @@ class Swarm:
             )
             if member.body_id < 0:
                 raise KeyError(f"robot {item.name!r} is not in the model")
+            joint = mujoco.mj_name2id(
+                model, mujoco.mjtObj.mjOBJ_JOINT, f"{item.name}_root"
+            )
+            if joint < 0:
+                raise KeyError(f"robot {item.name!r} has no root free joint")
+            member.dof_adr = int(model.jnt_dofadr[joint])
+            member.geom_ids = frozenset(
+                int(geom_id)
+                for geom_id in range(model.ngeom)
+                if int(model.body_rootid[model.geom_bodyid[geom_id]]) == member.body_id
+            )
+
+    def at_rest(self, data: mujoco.MjData) -> bool:
+        """True when every robot is supported, upright, and slow."""
+        for member in self.members:
+            if member.body_id < 0 or member.dof_adr < 0:
+                raise RuntimeError("place the swarm before checking whether it rests")
+            rot = np.asarray(data.xmat[member.body_id], dtype=np.float64)
+            if rot.reshape(3, 3)[2, 2] < SETTLED_UPRIGHT_DOT:
+                return False
+            velocity = data.qvel[member.dof_adr : member.dof_adr + 6]
+            if float(np.linalg.norm(velocity[:3])) > SETTLED_SPEED_M_S:
+                return False
+            if float(np.linalg.norm(velocity[3:])) > SETTLED_SPIN_RAD_S:
+                return False
+            supported = False
+            for contact in data.contact[: data.ncon]:
+                geom1 = int(contact.geom1)
+                geom2 = int(contact.geom2)
+                first_is_robot = geom1 in member.geom_ids
+                second_is_robot = geom2 in member.geom_ids
+                if first_is_robot == second_is_robot:
+                    continue
+                # MuJoCo's contact normal points from geom1 to geom2.  Reverse
+                # it when the robot is geom1 to get the normal acting on it.
+                normal_z = float(contact.frame[2])
+                if first_is_robot:
+                    normal_z = -normal_z
+                if normal_z >= SETTLED_SUPPORT_NORMAL_Z:
+                    supported = True
+                    break
+            if not supported:
+                return False
+        return True
+
+    def settle(
+        self, model: mujoco.MjModel, data: mujoco.MjData, max_steps: int = 3000
+    ) -> tuple[int, bool]:
+        """Step until the swarm is resting.  Returns (steps used, settled).
+
+        A fixed settling window is what this replaces, and it was wrong in both
+        directions: too short for a robot dropped onto rubble outside a door,
+        and pure waste for one that landed on flat ground in twenty steps.
+        Worse, it was silent -- the drivers were switched on at step 250
+        whether or not anything had landed, so a robot still in the air began
+        its route mid-bounce.
+        """
+        if not self.members:
+            return 0, True
+        held = 0
+        for step in range(1, max_steps + 1):
+            mujoco.mj_step(model, data)
+            if not self.at_rest(data):
+                held = 0
+                continue
+            held += 1
+            if held >= SETTLED_HOLD_STEPS:
+                return step, True
+        return max_steps, False
 
     def step(self, model: mujoco.MjModel, data: mujoco.MjData) -> None:
         for member in self.members:
             member.driver.step(model, data)
 
-    def observe(
-        self, data: mujoco.MjData, storey_height_m: float
+    def reroute(
+        self,
+        index: int,
+        waypoints: np.ndarray,
+        *,
+        goal_label: str | None = None,
     ) -> None:
+        """Install one robot's new route in control and presentation state."""
+
+        if not 0 <= index < len(self.members):
+            raise IndexError("swarm member index is out of range")
+        member = self.members[index]
+        member.driver.reroute(waypoints)
+        member.assignment = dataclasses.replace(
+            member.assignment,
+            route=np.array(member.driver.waypoints, copy=True),
+            goal_label=(
+                member.assignment.goal_label if goal_label is None else goal_label
+            ),
+        )
+
+    def observe(self, data: mujoco.MjData, storey_height_m: float) -> None:
         """Record the storey each robot is on, from its own trajectory."""
         for member in self.members:
             height = float(data.xpos[member.body_id][2])
@@ -380,15 +617,19 @@ class Swarm:
         and a shot that stays on one after it stops is a shot of a parked
         robot while three others are still climbing.
         """
+        if not self.members:
+            raise ValueError("an empty swarm has no camera focus")
         active = [
             m for m in self.members if not (m.driver.finished or m.driver.stalled)
         ]
-        return min(active or self.members, key=lambda m: m.progress)
+        # A queued robot has zero progress by definition, so including it while
+        # another robot is deployed makes the camera stare at the start line.
+        # Assignment order breaks progress ties deterministically.
+        deployed = [m for m in active if m.state is not RobotState.WAITING]
+        return min(deployed or active or self.members, key=lambda m: m.progress)
 
     def positions(self, data: mujoco.MjData) -> np.ndarray:
-        return np.array(
-            [data.xpos[m.body_id] for m in self.members], dtype=np.float64
-        )
+        return np.array([data.xpos[m.body_id] for m in self.members], dtype=np.float64)
 
     @property
     def done(self) -> bool:

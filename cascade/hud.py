@@ -53,6 +53,12 @@ _MONO_FONTS = (
     "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf",
 )
 
+# H.264 is most portable when both dimensions are divisible by a macroblock.
+# imageio otherwise inserts an implicit ffmpeg scale filter, changing the
+# picture without the caller asking it to.  VideoWriter pads instead so no
+# scene or HUD pixels are discarded or interpolated.
+VIDEO_MACROBLOCK: int = 2
+
 
 def _font(candidates: tuple[str, ...], size: int):
     from PIL import ImageFont
@@ -73,6 +79,8 @@ class RobotReadout:
     goal_storey: int
     progress: float
     status: str
+    goal_label: str = ""
+    behaviour_label: str | None = None
     #: True for the robot the hero camera is currently following.
     is_subject: bool = False
 
@@ -80,6 +88,31 @@ class RobotReadout:
     def rgb(self) -> tuple[int, int, int]:
         r, g, b = self.livery
         return (int(255 * r), int(255 * g), int(255 * b))
+
+    @property
+    def behaviour(self) -> str:
+        """Plain-language state for viewers who do not know controller terms."""
+
+        return self.behaviour_label or {
+            "waiting": "DEPLOYING",
+            "driving": "FOLLOWING ROUTE",
+            "climbing": "CLIMBING",
+            "recovering": "BACKING OUT",
+            "fallen": "IMMOBILIZED",
+            "stalled": "BLOCKED",
+            "unroutable": "NO SAFE ROUTE",
+            "arrived": "TARGET REACHED",
+        }.get(self.status, self.status.upper())
+
+
+@dataclass(frozen=True, slots=True)
+class ResearchMetric:
+    """One large, auditable value in the live research strip."""
+
+    label: str
+    value: str
+    detail: str = ""
+    colour: tuple[int, int, int] = ACCENT
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,13 +164,19 @@ def draw_hud(
     readouts: list[RobotReadout],
     elapsed_s: float,
     n_storeys: int = 0,
+    mission_status: str | None = None,
+    show_storeys: bool = True,
+    research_metrics: list[ResearchMetric] | None = None,
 ) -> np.ndarray:
     """Return `frame` with a header band above it and a telemetry block below."""
     from PIL import Image, ImageDraw
 
     pane = Image.fromarray(frame).convert("RGB")
     width, pane_height = pane.size
-    metrics = _Metrics(width=width, n_rows=len(readouts))
+    metrics = _Metrics(
+        width=width,
+        n_rows=1 if research_metrics is not None else len(readouts),
+    )
 
     image = Image.new(
         "RGB",
@@ -156,14 +195,24 @@ def draw_hud(
         elapsed_s=elapsed_s,
         arrived=arrived,
         total=len(readouts),
+        mission_status=mission_status,
     )
-    _draw_panel(
-        draw,
-        metrics,
-        top=metrics.header_height + pane_height,
-        readouts=readouts,
-        n_storeys=n_storeys or _storey_span(readouts),
-    )
+    if research_metrics is not None:
+        _draw_metrics_panel(
+            draw,
+            metrics,
+            top=metrics.header_height + pane_height,
+            metrics=research_metrics,
+        )
+    else:
+        _draw_panel(
+            draw,
+            metrics,
+            top=metrics.header_height + pane_height,
+            readouts=readouts,
+            n_storeys=n_storeys or _storey_span(readouts),
+            show_storeys=show_storeys,
+        )
     return np.asarray(image, dtype=np.uint8)
 
 
@@ -172,7 +221,17 @@ def _storey_span(readouts: list[RobotReadout]) -> int:
     return highest + 1
 
 
-def _draw_header(draw, m: _Metrics, *, title, subtitle, elapsed_s, arrived, total):
+def _draw_header(
+    draw,
+    m: _Metrics,
+    *,
+    title,
+    subtitle,
+    elapsed_s,
+    arrived,
+    total,
+    mission_status,
+):
     """Title and mission state, over a hairline rule."""
     title_font = _font(_LABEL_FONTS, m.title_size)
     small_font = _font(_BODY_FONTS, m.small_size)
@@ -192,7 +251,7 @@ def _draw_header(draw, m: _Metrics, *, title, subtitle, elapsed_s, arrived, tota
     )
 
     clock = f"T+{elapsed_s:6.1f} s"
-    tally = f"{arrived}/{total} ARRIVED"
+    tally = mission_status or f"{arrived}/{total} ARRIVED"
     right = m.width - m.pad
     draw.text(
         (right - draw.textlength(clock, font=mono_font), m.pad - 2),
@@ -204,7 +263,13 @@ def _draw_header(draw, m: _Metrics, *, title, subtitle, elapsed_s, arrived, tota
         (right - draw.textlength(tally, font=small_font), m.pad + m.title_size + 2),
         tally,
         font=small_font,
-        fill=ACCENT if arrived else TEXT_DIM,
+        fill=(
+            STATUS_COLOURS["fallen"]
+            if mission_status and mission_status.startswith("RUN FAILED")
+            else ACCENT
+            if arrived or mission_status
+            else TEXT_DIM
+        ),
     )
     draw.line(
         [0, m.header_height - 1, m.width, m.header_height - 1], fill=RULE, width=1
@@ -216,10 +281,11 @@ def _draw_header(draw, m: _Metrics, *, title, subtitle, elapsed_s, arrived, tota
 _COL_NAME: float = 0.0
 _COL_LADDER: float = 0.115
 _COL_BAR: float = 0.30
-_COL_STATUS: float = 0.56
+_COL_DESTINATION: float = 0.56
+_COL_STATUS: float = 0.80
 
 
-def _draw_panel(draw, m: _Metrics, *, top, readouts, n_storeys) -> None:
+def _draw_panel(draw, m: _Metrics, *, top, readouts, n_storeys, show_storeys) -> None:
     """One row per robot: livery, name, storey ladder, progress, status."""
     label_font = _font(_LABEL_FONTS, m.body_size)
     small_font = _font(_BODY_FONTS, m.small_size)
@@ -232,12 +298,23 @@ def _draw_panel(draw, m: _Metrics, *, top, readouts, n_storeys) -> None:
         return m.pad + int(inner * fraction)
 
     head_y = top + m.pad // 2
-    for label, fraction in (
-        ("ROBOT", _COL_NAME),
-        ("STOREY", _COL_LADDER),
-        ("ROUTE FLOWN", _COL_BAR),
-        ("STATE", _COL_STATUS),
-    ):
+    columns = (
+        (
+            ("ROBOT", _COL_NAME),
+            ("STOREY", _COL_LADDER),
+            ("ROUTE FLOWN", _COL_BAR),
+            ("DESTINATION", _COL_DESTINATION),
+            ("STATE", _COL_STATUS),
+        )
+        if show_storeys
+        else (
+            ("AGENT", _COL_NAME),
+            ("CURRENT ROUTE", 0.16),
+            ("ASSIGNED SURVIVOR", 0.50),
+            ("BEHAVIOUR", _COL_STATUS),
+        )
+    )
+    for label, fraction in columns:
         draw.text((column(fraction), head_y), label, font=small_font, fill=TEXT_DIM)
 
     for index, readout in enumerate(readouts):
@@ -250,10 +327,66 @@ def _draw_panel(draw, m: _Metrics, *, top, readouts, n_storeys) -> None:
             readout=readout,
             n_storeys=n_storeys,
             fonts=(label_font, small_font, mono_font),
+            show_storeys=show_storeys,
         )
 
 
-def _draw_row(draw, m: _Metrics, *, y, column, readout, n_storeys, fonts) -> None:
+def _draw_metrics_panel(draw, m: _Metrics, *, top, metrics) -> None:
+    """Replace low-value progress rows with a few legible research measures."""
+
+    label_font = _font(_LABEL_FONTS, m.small_size)
+    value_font = _font(_MONO_FONTS, m.body_size)
+    detail_font = _font(_BODY_FONTS, m.small_size)
+    draw.rectangle([0, top, m.width, top + m.panel_height], fill=INK_RAISED)
+    count = max(1, len(metrics))
+    inner = m.width - 2 * m.pad
+    cell = inner / count
+    for index, metric in enumerate(metrics):
+        left = int(m.pad + index * cell)
+        if index:
+            draw.line(
+                [
+                    left - m.pad // 2,
+                    top + m.pad,
+                    left - m.pad // 2,
+                    top + m.panel_height - m.pad,
+                ],
+                fill=RULE,
+                width=1,
+            )
+        draw.text(
+            (left, top + m.pad // 2),
+            metric.label.upper(),
+            font=label_font,
+            fill=TEXT_DIM,
+        )
+        value_y = top + m.pad // 2 + m.small_size + 5
+        draw.text(
+            (left, value_y),
+            metric.value,
+            font=value_font,
+            fill=(*metric.colour, 255),
+        )
+        if metric.detail:
+            draw.text(
+                (left, value_y + m.body_size + 2),
+                metric.detail,
+                font=detail_font,
+                fill=TEXT_MUTED,
+            )
+
+
+def _draw_row(
+    draw,
+    m: _Metrics,
+    *,
+    y,
+    column,
+    readout,
+    n_storeys,
+    fonts,
+    show_storeys=True,
+) -> None:
     label_font, small_font, mono_font = fonts
     colour = readout.rgb
     mid = y + m.body_size // 2
@@ -275,24 +408,28 @@ def _draw_row(draw, m: _Metrics, *, y, column, readout, n_storeys, fonts) -> Non
         fill=TEXT_PRIMARY if readout.is_subject else TEXT_MUTED,
     )
 
-    _draw_ladder(
-        draw,
-        x=column(_COL_LADDER),
-        mid=mid,
-        step=max(9, m.width // 105),
-        n_storeys=n_storeys,
-        readout=readout,
-    )
+    if show_storeys:
+        _draw_ladder(
+            draw,
+            x=column(_COL_LADDER),
+            mid=mid,
+            step=max(9, m.width // 105),
+            n_storeys=n_storeys,
+            readout=readout,
+        )
 
     # The bar has to give back whatever the percentage needs, measured rather
     # than guessed at: a fixed gap that fits "4%" puts "100%" on top of the
     # status word in the next column.
     percent = f"{100 * readout.progress:3.0f}%"
     percent_w = draw.textlength(percent, font=mono_font)
-    bar_x = column(_COL_BAR)
-    bar_w = int(column(_COL_STATUS) - bar_x - percent_w - 2 * m.pad)
+    bar_x = column(_COL_BAR if show_storeys else 0.16)
+    destination_column = _COL_DESTINATION if show_storeys else 0.50
+    bar_w = int(column(destination_column) - bar_x - percent_w - 2 * m.pad)
     bar_h = max(6, m.body_size // 2)
-    draw.rectangle([bar_x, mid - bar_h // 2, bar_x + bar_w, mid + bar_h // 2], fill=RULE)
+    draw.rectangle(
+        [bar_x, mid - bar_h // 2, bar_x + bar_w, mid + bar_h // 2], fill=RULE
+    )
     filled = int(bar_w * max(0.0, min(1.0, readout.progress)))
     if filled:
         draw.rectangle(
@@ -302,8 +439,15 @@ def _draw_row(draw, m: _Metrics, *, y, column, readout, n_storeys, fonts) -> Non
     draw.text((bar_x + bar_w + m.pad, y), percent, font=mono_font, fill=TEXT_MUTED)
 
     draw.text(
+        (column(destination_column), y - 1),
+        readout.goal_label[:22],
+        font=small_font,
+        fill=(*readout.rgb, 255),
+    )
+
+    draw.text(
         (column(_COL_STATUS), y - 1),
-        readout.status,
+        readout.status if show_storeys else readout.behaviour,
         font=small_font,
         fill=STATUS_COLOURS.get(readout.status, TEXT_MUTED),
     )
@@ -327,6 +471,80 @@ def _draw_ladder(draw, *, x, mid, step, n_storeys, readout) -> None:
             draw.rectangle(box, outline=(*ACCENT, 255), width=1)
         else:
             draw.rectangle(box, fill=RULE)
+
+
+def research_card(
+    frame: np.ndarray,
+    *,
+    eyebrow: str,
+    title: str,
+    body: str,
+    metrics: list[ResearchMetric] | None = None,
+    footer: str = "",
+) -> np.ndarray:
+    """Replace a frame with a paced hypothesis or results card."""
+    from PIL import Image, ImageDraw
+
+    height, width = frame.shape[:2]
+    image = Image.new("RGB", (width, height), INK)
+    draw = ImageDraw.Draw(image, "RGBA")
+    pad = max(28, width // 24)
+    eyebrow_font = _font(_LABEL_FONTS, max(15, width // 96))
+    title_font = _font(_LABEL_FONTS, max(30, width // 34))
+    body_font = _font(_BODY_FONTS, max(18, width // 58))
+    metric_label_font = _font(_LABEL_FONTS, max(14, width // 110))
+    metric_value_font = _font(_MONO_FONTS, max(24, width // 46))
+    detail_font = _font(_BODY_FONTS, max(13, width // 105))
+
+    draw.rectangle(
+        [pad, pad, pad + max(5, width // 320), height - pad], fill=(*ACCENT, 255)
+    )
+    left = pad + width // 36
+    draw.text((left, pad), eyebrow.upper(), font=eyebrow_font, fill=ACCENT)
+    title_y = pad + width // 40
+    draw.text((left, title_y), title, font=title_font, fill=TEXT_PRIMARY)
+    body_y = title_y + width // 24
+    draw.multiline_text(
+        (left, body_y), body, font=body_font, fill=TEXT_MUTED, spacing=8
+    )
+
+    cards = metrics or []
+    if cards:
+        cards_y = int(height * 0.58)
+        available = width - left - pad
+        cell = available / len(cards)
+        for index, metric in enumerate(cards):
+            x = int(left + index * cell)
+            if index:
+                draw.line(
+                    [x - pad // 4, cards_y, x - pad // 4, cards_y + height // 7],
+                    fill=RULE,
+                    width=1,
+                )
+            draw.text(
+                (x, cards_y),
+                metric.label.upper(),
+                font=metric_label_font,
+                fill=TEXT_DIM,
+            )
+            draw.text(
+                (x, cards_y + width // 80),
+                metric.value,
+                font=metric_value_font,
+                fill=(*metric.colour, 255),
+            )
+            if metric.detail:
+                draw.text(
+                    (x, cards_y + width // 80 + width // 42),
+                    metric.detail,
+                    font=detail_font,
+                    fill=TEXT_MUTED,
+                )
+    if footer:
+        draw.text(
+            (left, height - pad - width // 90), footer, font=detail_font, fill=TEXT_DIM
+        )
+    return np.asarray(image, dtype=np.uint8)
 
 
 def caption(frame: np.ndarray, text: str, *, accent: bool = False) -> np.ndarray:
@@ -354,20 +572,60 @@ def caption(frame: np.ndarray, text: str, *, accent: bool = False) -> np.ndarray
     return np.asarray(image, dtype=np.uint8)
 
 
-def stack_panes(hero: np.ndarray, plan: np.ndarray) -> np.ndarray:
-    """Put the plan pane beside the hero shot, matching heights."""
+def stack_panes(
+    hero: np.ndarray,
+    plan: np.ndarray,
+    *,
+    plan_fraction: float | None = None,
+    target_width: int | None = None,
+    hero_label: str | None = None,
+    plan_label: str | None = None,
+) -> np.ndarray:
+    """Put the plan beside the hero, optionally making it the primary pane.
+
+    Labels are applied after the cover-crop. Applying them to source panes
+    first lets the crop erase the words identifying an evaluation view.
+    """
     from PIL import Image
 
     target_h = hero.shape[0]
-    scale = target_h / plan.shape[0]
-    resized = np.asarray(
-        Image.fromarray(plan).resize(
-            (max(1, int(plan.shape[1] * scale)), target_h), Image.LANCZOS
-        ),
-        dtype=np.uint8,
-    )
-    gap = np.full((target_h, 4, 3), RULE, dtype=np.uint8)
-    return np.concatenate((hero, gap, resized), axis=1)
+    gap_w = 4
+    if plan_fraction is None:
+        scale = target_h / plan.shape[0]
+        plan_w = max(1, int(plan.shape[1] * scale))
+        hero_w = hero.shape[1]
+    else:
+        if not 0.0 < plan_fraction < 1.0:
+            raise ValueError("plan_fraction must be between zero and one")
+        total = target_width or hero.shape[1] + plan.shape[1]
+        plan_w = max(1, round((total - gap_w) * plan_fraction))
+        hero_w = max(1, total - gap_w - plan_w)
+
+    def cover(frame: np.ndarray, width: int) -> np.ndarray:
+        source = Image.fromarray(frame)
+        scale = max(width / source.width, target_h / source.height)
+        resized = source.resize(
+            (
+                max(width, round(source.width * scale)),
+                max(target_h, round(source.height * scale)),
+            ),
+            Image.LANCZOS,
+        )
+        left = (resized.width - width) // 2
+        top = (resized.height - target_h) // 2
+        return np.asarray(
+            resized.crop((left, top, left + width, top + target_h)),
+            dtype=np.uint8,
+        )
+
+    hero_image = cover(hero, hero_w)
+    plan_image = cover(plan, plan_w)
+    if hero_label:
+        hero_image = caption(hero_image, hero_label)
+    if plan_label:
+        plan_image = caption(plan_image, plan_label)
+    gap = np.full((target_h, gap_w, 3), RULE, dtype=np.uint8)
+    return np.concatenate((hero_image, gap, plan_image), axis=1)
 
 
 class VideoWriter:
@@ -385,18 +643,32 @@ class VideoWriter:
 
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._writer = iio.get_writer(self.path, fps=fps, codec="libx264", quality=8)
-        self._shape: tuple[int, int] | None = None
+        self._writer = iio.get_writer(
+            self.path,
+            fps=fps,
+            codec="libx264",
+            quality=8,
+            # Frames are padded explicitly below.  Disabling imageio's own
+            # macroblock handling guarantees it cannot silently add a scale
+            # filter if that invariant is accidentally broken later.
+            macro_block_size=1,
+        )
+        self._source_shape: tuple[int, int, int] | None = None
         self.frames = 0
 
     def append(self, frame: np.ndarray) -> None:
-        if self._shape is None:
-            height, width = frame.shape[:2]
-            # H.264 wants even dimensions, and the encoder needs every frame
-            # the same size as the first.
-            self._shape = (height - height % 2, width - width % 2)
-        height, width = self._shape
-        self._writer.append_data(np.ascontiguousarray(frame[:height, :width]))
+        if frame.ndim != 3 or frame.shape[2] != 3 or frame.dtype != np.uint8:
+            raise ValueError("video frames must be H x W x 3 uint8 RGB arrays")
+        if not frame.shape[0] or not frame.shape[1]:
+            raise ValueError("video frames must have non-zero dimensions")
+        if self._source_shape is None:
+            self._source_shape = frame.shape
+        elif frame.shape != self._source_shape:
+            raise ValueError(
+                f"video frame shape changed from {self._source_shape} to {frame.shape}"
+            )
+
+        self._writer.append_data(_encoder_safe_frame(frame))
         self.frames += 1
 
     def close(self) -> Path | None:
@@ -408,3 +680,25 @@ class VideoWriter:
 
     def __exit__(self, *exc: object) -> None:
         self.close()
+
+
+def _encoder_safe_frame(frame: np.ndarray) -> np.ndarray:
+    """Pad an RGB frame at its right and bottom edges to a full macroblock.
+
+    Padding rather than scaling retains every source pixel and therefore the
+    camera composition.  The at-most-15-pixel border uses the HUD background,
+    so it reads as part of the existing frame rather than video garbage.
+    """
+    height, width = frame.shape[:2]
+    encoded_height = ((height + VIDEO_MACROBLOCK - 1) // VIDEO_MACROBLOCK) * (
+        VIDEO_MACROBLOCK
+    )
+    encoded_width = ((width + VIDEO_MACROBLOCK - 1) // VIDEO_MACROBLOCK) * (
+        VIDEO_MACROBLOCK
+    )
+    if (encoded_height, encoded_width) == (height, width):
+        return np.ascontiguousarray(frame)
+
+    padded = np.full((encoded_height, encoded_width, 3), INK, dtype=np.uint8)
+    padded[:height, :width] = frame
+    return padded

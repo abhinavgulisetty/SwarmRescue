@@ -6,16 +6,12 @@ reveal -- room areas can tile perfectly while the rooms themselves are
 nonsense -- so being able to look at the thing is a first-class requirement,
 not a presentation nicety.
 
-Backend note: on this machine EGL and OSMesa both fail to initialise and GLFW
-works, so `MUJOCO_GL` is defaulted to glfw unless the caller has already
-chosen.  That has to happen before `mujoco` is imported anywhere.
+On Linux, :mod:`cascade` selects EGL before MuJoCo is imported so these
+offscreen utilities do not need a display server.  An explicit ``MUJOCO_GL``
+environment value is preserved; use ``MUJOCO_GL=glfw`` for a live window.
 """
 
 from __future__ import annotations
-
-import os
-
-os.environ.setdefault("MUJOCO_GL", "glfw")
 
 from collections.abc import Callable
 from dataclasses import dataclass

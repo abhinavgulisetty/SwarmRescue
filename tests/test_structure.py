@@ -21,7 +21,7 @@ from cascade.structure import (
     column_nodes,
 )
 
-SEEDS = (0, 7, 42, 123, 1000)
+SEEDS = (0, 7, 42, 123, 199)
 
 
 @pytest.fixture(scope="module")
@@ -62,15 +62,15 @@ def test_every_facade_has_walls(seed: int, params: BuildingParams) -> None:
                 found = [
                     w
                     for w in on_storey
-                    if abs(w.center[1] - coordinate) <= 0.5 * params.wall_thickness_m
-                    + EPS_M
+                    if abs(w.center[1] - coordinate)
+                    <= 0.5 * params.wall_thickness_m + EPS_M
                 ]
             else:
                 found = [
                     w
                     for w in on_storey
-                    if abs(w.center[0] - coordinate) <= 0.5 * params.wall_thickness_m
-                    + EPS_M
+                    if abs(w.center[0] - coordinate)
+                    <= 0.5 * params.wall_thickness_m + EPS_M
                 ]
             assert found, f"seed {seed} storey {storey}: facade {label} has no walls"
 

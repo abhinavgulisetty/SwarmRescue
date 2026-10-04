@@ -8,7 +8,12 @@ from hypothesis import strategies as st
 
 from cascade.geometry import Axis, Rect, shared_wall
 
-_COORD = st.floats(min_value=-50.0, max_value=50.0, allow_nan=False, allow_infinity=False)
+_COORD = st.floats(
+    min_value=-50.0,
+    max_value=50.0,
+    allow_nan=False,
+    allow_infinity=False,
+)
 
 
 @st.composite

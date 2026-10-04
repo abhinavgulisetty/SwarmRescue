@@ -32,7 +32,11 @@ from .structure import Structure
 CACHE_DIR = Path(__file__).resolve().parent / "cache"
 
 #: Cache format version.  Bump to invalidate every stored keyframe.
-CACHE_VERSION: int = 2
+#:
+#: v3: destroyed members no longer free-fall below the world, so both the
+#: energy trace and the early-settling test changed meaning.  Every v2
+#: keyframe reports an energy that is almost entirely ghost free fall.
+CACHE_VERSION: int = 3
 
 #: Where pulverized members are parked: far below the ground plane, out of the
 #: rubble field and out of the render.  They keep their degrees of freedom (a
@@ -184,14 +188,31 @@ def pulverize(
     and its body dropped far below the ground plane.  The slab above then has
     genuinely nothing beneath it.
 
+    Its weight is cancelled at the same time, and that is not a detail.  A
+    MuJoCo model's body count is fixed at compile time, so a destroyed member
+    keeps its free joint and keeps falling -- through the disposal height, past
+    it, accelerating for as long as the collapse runs.  Nothing collides with
+    it and nothing is visibly wrong, which is why this survived: the only place
+    it showed up was the one number the collapse exists to produce.  For seed
+    7, the 90 destroyed columns weigh 57.6 t, and 57.6 t falling freely for
+    eight seconds carries 177.3047 MJ; the run reported a peak kinetic energy
+    of 177.3048 MJ.  The headline figure was the ghosts, to seven figures, and
+    the real collapse was somewhere in the last decimal place.
+
+    It also disabled the early-settling test.  Quiescence is declared when
+    total kinetic energy drops below a threshold, and a term that grows without
+    bound never lets it, so every collapse ran the full step budget and every
+    result claimed `settled_early=False`.
+
     Reserved for columns.  Applying it to everything was a mistake worth
     naming: pulverizing failed slabs and partitions deletes the debris field,
     and the debris field is exactly what *arrests* a real collapse -- rubble
     piles up and the falling mass lands on something.  Delete it and every
     collapse runs to completion.
 
-    This mutates `model` (geom contype/conaffinity), so callers needing a
-    pristine model must pass a per-run instance.
+    This mutates `model` (geom contype/conaffinity) and `data`
+    (`xfrc_applied`), so callers needing a pristine model must pass a per-run
+    instance.
     """
     for name in names:
         body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
@@ -203,6 +224,14 @@ def pulverize(
         ):
             model.geom_contype[geom_id] = 0
             model.geom_conaffinity[geom_id] = 0
+
+        # Hold the body against gravity.  `body_gravcomp` is the field that
+        # means this, but it cannot be used: MuJoCo skips the gravity
+        # compensation pass entirely when the compile-time count `ngravcomp` is
+        # zero, and that count is read-only from Python.  An explicit body
+        # force is equivalent, persists across steps, and does not depend on
+        # how the model happened to be compiled.
+        data.xfrc_applied[body_id, :3] = -model.body_mass[body_id] * model.opt.gravity
 
         joint_id = model.body_jntadr[body_id]
         if joint_id >= 0:
@@ -343,7 +372,11 @@ def load_collapse(
 
 
 def apply_settled_state(
-    model: mujoco.MjModel, data: mujoco.MjData, result: CollapseResult
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    result: CollapseResult,
+    *,
+    allow_appended_joints: bool = False,
 ) -> None:
     """Place the world in its post-collapse configuration, at rest.
 
@@ -352,13 +385,18 @@ def apply_settled_state(
     cached rubble field would otherwise be propped up by columns that the
     blast destroyed.
     """
-    if result.qpos.shape[0] != model.nq:
+    if result.qpos.shape[0] != model.nq and not (
+        allow_appended_joints and result.qpos.shape[0] < model.nq
+    ):
         raise ValueError(
-            f"cached qpos has {result.qpos.shape[0]} entries but the model "
-            f"expects {model.nq}; the cache is stale"
+            f"cached qpos has {result.qpos.shape[0]} entries but the model has "
+            f"{model.nq}; the cache is stale"
         )
     apply_damage(model, data, result.damage)
-    data.qpos[:] = result.qpos
+    # Structure bodies are emitted before optional robots, so their free-joint
+    # coordinates remain a prefix. This lets the same cached collapse seed a
+    # live model with robot joints appended after it.
+    data.qpos[: result.qpos.shape[0]] = result.qpos
     data.qvel[:] = 0.0
     mujoco.mj_forward(model, data)
 

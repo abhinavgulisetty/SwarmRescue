@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from enum import StrEnum
 from xml.etree import ElementTree as ET
 
 import mujoco
@@ -25,6 +26,18 @@ BEACON_HEIGHT_M: float = 1.10
 #: the top-down pane: at 0.35 m it is about eight pixels across from the plan
 #: camera's 28 m, which is the smallest a colour reads reliably at.
 MARKER_RADIUS_M: float = 0.35
+
+#: How far above its resting height a robot is spawned, metres.
+#:
+#: Small and positive, and it has to be positive.  The first version hardcoded
+#: a spawn height of 0.12 m against a ride height of 0.14 m, so every robot in
+#: every run began with its wheels two centimetres inside the floor.  The
+#: contact solver resolves that penetration the only way it can, by pushing
+#: the chassis out hard -- measured at 2.5 m/s upward -- and the robot was
+#: still airborne when the fixed settling window expired and the drivers were
+#: switched on.  Every run therefore started with four robots being thrown
+#: into the air and landing on their own routes.
+SPAWN_CLEARANCE_M: float = 0.02
 
 #: Collision masks.  Two geoms interact when `contype & conaffinity` is
 #: non-zero in either direction, so putting robots on their own contype bit
@@ -77,6 +90,14 @@ class RobotSpec:
     def ride_height_m(self) -> float:
         """Chassis centre height above the surface the wheels rest on."""
         return self.wheel_radius_m + 0.5 * self.body_height_m * 0.2
+
+    @property
+    def spawn_height_m(self) -> float:
+        """Chassis centre height to spawn at, above the surface below it.
+
+        Never below `ride_height_m`: see `SPAWN_CLEARANCE_M`.
+        """
+        return self.ride_height_m + SPAWN_CLEARANCE_M
 
 
 def build_robot(
@@ -202,6 +223,34 @@ def build_robot(
     return body, actuators
 
 
+class RobotState(StrEnum):
+    """What a robot is doing, for reporting and for the overlay.
+
+    The first version had three of these -- driving, stalled, arrived -- and
+    the missing distinctions were not cosmetic.  A robot that had not been
+    released yet reported "driving"; a robot backing out of a snag reported
+    "driving"; and a robot that drove off the edge of a slab opening, fell two
+    and a half metres and could not get back reported "stalled", which says
+    the route was undrivable when what actually happened is that the robot
+    left it.
+    """
+
+    #: Held at the start line, waiting for its turn to deploy.
+    WAITING = "waiting"
+    DRIVING = "driving"
+    #: On a stair flight, gaining height.
+    CLIMBING = "climbing"
+    #: Backing out of a snag.
+    RECOVERING = "recovering"
+    #: Off the route and below it -- it fell.
+    FALLEN = "fallen"
+    #: Gave up: no progress for the whole patience, having never fallen.
+    STALLED = "stalled"
+    #: Planning could not supply any route, so the robot never deployed.
+    UNROUTABLE = "unroutable"
+    ARRIVED = "arrived"
+
+
 #: Weight on height when projecting the robot onto its own route.  A route up
 #: a staircase stacks waypoints almost vertically, so in plan distance the
 #: cell at the top of a flight is a few centimetres from the cell at the
@@ -234,7 +283,9 @@ class WaypointDriver:
     cruise_rad_s: float = 4.0
     turn_gain: float = 7.0
     index: int = 0
-    #: Set when the robot has stopped making progress toward its waypoint.
+    #: Set when the driver has terminally failed, either because progress
+    #: stopped or because planning supplied no route.  The reporting state
+    #: distinguishes those causes.
     stalled: bool = False
     #: Steps to hold still before setting off.  Robots share a doorway; a
     #: swarm released simultaneously piles into it and wedges, and every robot
@@ -269,18 +320,80 @@ class WaypointDriver:
     #: Floor on the cornering speed factor, so the robot still creeps through
     #: the sharpest turn rather than stopping dead in it.
     min_speed_factor: float = 0.22
+    #: How far the straight line to the aim point may depart from the route
+    #: itself, metres.  This is what stops pure pursuit cutting corners.
+    #:
+    #: The route is planned in configuration space, so a waypoint means "the
+    #: robot's centre can be here" with obstacles already grown by the chassis
+    #: radius.  Steering at a waypoint two cells ahead abandons that guarantee
+    #: for the chord between them, and on seed 7 it cut 0.29 m inside the route
+    #: at the lip of a slab opening and put robot1 off an 8.86 m floor.  Half a
+    #: voxel is comfortably inside the planner's own margin.
+    corner_tolerance_m: float = 0.12
+    #: How far below its route the robot must be to count as having fallen off
+    #: it, metres.  Larger than any climbable step, smaller than a storey.
+    fall_depth_m: float = 0.60
+    #: Height the route must gain over `climb_window` waypoints to count as a
+    #: stair flight rather than a ramp or a settled slab, metres.
+    climb_rise_m: float = 0.15
+    climb_window: int = 4
 
     _steps: int = 0
     _best_index: int = -1
     _since_progress: int = 0
     _recovery_left: int = 0
     _recovery_turn: float = 1.0
+    _state: RobotState = RobotState.WAITING
+    #: Latched: a robot that fell and then ran out of patience is reported as
+    #: having fallen, not as having stalled on undrivable geometry.
+    _ever_fell: bool = False
+    #: Metres the robot's contact point currently sits below its projection on
+    #: the route.  Refreshed once per step, and read by the state machine.
+    _below_route: float = 0.0
+
+    def __post_init__(self) -> None:
+        # An empty path is `path_from`'s unreachable sentinel.  Mark that
+        # planning failure before the first physics step so telemetry and
+        # lifecycle checks never briefly report a queued, viable robot.
+        if len(self.waypoints) == 0:
+            self.stalled = True
+            self._state = RobotState.UNROUTABLE
+
+    def reroute(self, waypoints: np.ndarray) -> None:
+        """Replace the active route and restart projection from its first point."""
+
+        route = np.asarray(waypoints, dtype=np.float64)
+        if route.ndim != 2 or route.shape[1:] != (3,) or len(route) == 0:
+            raise ValueError("a replacement route must have shape (N, 3), N > 0")
+        if not np.all(np.isfinite(route)):
+            raise ValueError("a replacement route must be finite")
+        self.waypoints = np.array(route, copy=True)
+        self.index = 0
+        self.stalled = False
+        self._best_index = -1
+        self._since_progress = 0
+        self._recovery_left = 0
+        self._below_route = 0.0
+        self._state = (
+            RobotState.WAITING
+            if self._steps <= self.start_delay_steps
+            else RobotState.DRIVING
+        )
 
     @property
     def finished(self) -> bool:
-        return self.index >= len(self.waypoints)
+        # An empty route means that planning failed, not that the robot is
+        # already at a goal.  `path_from` returns an empty list only when its
+        # goal is unreachable; a start-equals-goal route still has one node.
+        return len(self.waypoints) > 0 and self.index >= len(self.waypoints)
+
+    @property
+    def state(self) -> RobotState:
+        return self._state
 
     def target(self) -> np.ndarray:
+        if len(self.waypoints) == 0:
+            raise ValueError("a driver without a route has no target")
         return self.waypoints[min(self.index, len(self.waypoints) - 1)]
 
     def step(self, model: mujoco.MjModel, data: mujoco.MjData) -> None:
@@ -288,22 +401,27 @@ class WaypointDriver:
         if len(self.waypoints) == 0:
             self._drive(model, data, 0.0, 0.0)
             self.index = 0
+            self.stalled = True
+            self._state = RobotState.UNROUTABLE
             return
         # Arriving has to latch.  The projection below runs before the arrival
         # test, so a robot parked on its goal re-projected onto the last few
         # waypoints, found itself "not there yet", and set off again -- one
         # robot reached the roof, turned round, and drove back down two
         # storeys before the run ended.
-        if self.finished or self.stalled:
+        if self.finished:
+            self._state = RobotState.ARRIVED
+            self._drive(model, data, 0.0, 0.0)
+            return
+        if self.stalled:
             self._drive(model, data, 0.0, 0.0)
             return
         if self._steps <= self.start_delay_steps:
+            self._state = RobotState.WAITING
             self._drive(model, data, 0.0, 0.0)
             return
 
-        body_id = mujoco.mj_name2id(
-            model, mujoco.mjtObj.mjOBJ_BODY, self.spec.name
-        )
+        body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, self.spec.name)
         position = np.array(data.xpos[body_id], dtype=np.float64)
         rot = np.array(data.xmat[body_id], dtype=np.float64).reshape(3, 3)
         forward = rot[:, 0]
@@ -323,9 +441,7 @@ class WaypointDriver:
         contact = position - np.array([0.0, 0.0, self.spec.ride_height_m])
         offset = self.waypoints - contact
         distance = np.sqrt(
-            offset[:, 0] ** 2
-            + offset[:, 1] ** 2
-            + (_HEIGHT_WEIGHT * offset[:, 2]) ** 2
+            offset[:, 0] ** 2 + offset[:, 1] ** 2 + (_HEIGHT_WEIGHT * offset[:, 2]) ** 2
         )
         # The floor applies to both searches.  Bounding only the re-acquisition
         # leaves the short backward window free to walk the projection down the
@@ -354,14 +470,43 @@ class WaypointDriver:
         # that were three waypoints from the roof back down to the second
         # floor to start again.  Searching back a fixed distance along the
         # route recovers from a fall without ever undoing the climb.
+        # Below the route by more than a climbable step: it is off the floor it
+        # was routed along, not merely off-line on it.  Detect this before the
+        # global re-acquisition below: a robot that falls beside a switchback
+        # can be nearest to a lower flight, but choosing that waypoint must not
+        # erase the fact that it just fell from the flight it was following.
+        self._below_route = float(self.waypoints[self.index, 2] - contact[2])
+        if self._below_route > self.fall_depth_m:
+            self._ever_fell = True
+
         if distance[self.index] > self.reacquire_m:
-            self.index = floor + int(np.argmin(distance[floor:]))
+            if self._below_route > self.fall_depth_m:
+                # A fall can put the chassis one complete storey below the
+                # furthest point it reached.  The ordinary index floor then
+                # starts halfway up the abandoned flight, leaving the robot
+                # on the lower slab aiming at a waypoint suspended above it.
+                # Rewind to the nearest route point on the surface where the
+                # robot actually landed.  Height filtering prevents a stacked
+                # switchback on another storey from capturing the projection.
+                same_level = np.flatnonzero(
+                    np.abs(self.waypoints[:, 2] - contact[2])
+                    <= self.fall_depth_m
+                )
+                if same_level.size:
+                    self.index = int(same_level[int(np.argmin(distance[same_level]))])
+                    self._best_index = self.index
+                    self._since_progress = 0
+                else:
+                    self.index = floor + int(np.argmin(distance[floor:]))
+            else:
+                self.index = floor + int(np.argmin(distance[floor:]))
 
         if (
             self.index >= len(self.waypoints) - 1
             and distance[-1] <= self.arrive_radius_m
         ):
             self.index = len(self.waypoints)
+            self._state = RobotState.ARRIVED
             self._drive(model, data, 0.0, 0.0)
             return
 
@@ -379,8 +524,13 @@ class WaypointDriver:
         else:
             self._since_progress += 1
 
-        if self._since_progress > self.stall_patience:
+        if self._since_progress >= self.stall_patience:
             self.stalled = True
+            # A robot that fell and never got back is not a robot that stalled.
+            # Reporting the two the same way blames the route for something the
+            # controller did, which is exactly backwards when the route was
+            # certified drivable and the controller left it.
+            self._state = RobotState.FALLEN if self._ever_fell else RobotState.STALLED
             self._drive(model, data, 0.0, 0.0)
             return
 
@@ -389,18 +539,24 @@ class WaypointDriver:
         # different approach, and without this the run ends at the first such
         # snag even though the route is perfectly drivable.  Attempts alternate
         # direction and repeat for as long as the patience lasts.
+        if (
+            self._recovery_left <= 0
+            and self.recovery_after > 0
+            and self._since_progress
+            and self._since_progress % self.recovery_after == 0
+        ):
+            self._recovery_left = self.recovery_steps
+            self._recovery_turn = -self._recovery_turn
         if self._recovery_left > 0:
             self._recovery_left -= 1
+            self._state = RobotState.RECOVERING
             back = -0.45 * self.cruise_rad_s
             swing = 0.5 * self.turn_gain * self._recovery_turn
             self._drive(model, data, back - swing, back + swing)
             return
-        if self._since_progress and self._since_progress % self.recovery_after == 0:
-            self._recovery_left = self.recovery_steps
-            self._recovery_turn = -self._recovery_turn
-            return
 
-        aim = min(self.index + self.lookahead, len(self.waypoints) - 1)
+        aim = self._aim_index(contact)
+        self._state = self._moving_state()
         delta = self.waypoints[aim] - position
 
         desired = math.atan2(delta[1], delta[0])
@@ -417,6 +573,75 @@ class WaypointDriver:
         speed = self.cruise_rad_s * factor
         turn = self.turn_gain * error
         self._drive(model, data, speed - turn, speed + turn)
+
+    def _aim_index(self, contact: np.ndarray) -> int:
+        """Furthest waypoint the robot may steer straight at.
+
+        Pure pursuit aims a fixed number of waypoints ahead, and a fixed
+        lookahead is a promise the route does not make: the guarantee attached
+        to a waypoint is about the waypoint, not about the straight line to it.
+        Where the route bends, that line leaves the corridor the planner
+        cleared -- so the aim point is advanced only while every waypoint it
+        skips stays within `corner_tolerance_m` of the chord.  On a straight
+        run nothing is skipped and this is the old behaviour exactly; at a
+        corner it collapses to the nearest mandatory corner.
+        """
+        if len(self.waypoints) == 0:
+            raise ValueError("a driver without a route has no aim point")
+        last = len(self.waypoints) - 1
+        aim = min(max(self.index, 0), last)
+        limit = min(aim + max(self.lookahead, 0), last)
+        for candidate in range(aim + 1, limit + 1):
+            if self._departure(contact, candidate) > self.corner_tolerance_m:
+                break
+            aim = candidate
+        return aim
+
+    def _departure(self, contact: np.ndarray, candidate: int) -> float:
+        """How far the route strays from the chord to `candidate`, in plan."""
+        start = contact[:2]
+        span = self.waypoints[candidate, :2] - start
+        length_sq = float(span @ span)
+        # Usually only vertices *between* the projection and candidate are
+        # skipped.  Making every projected lattice point mandatory turns a
+        # smooth pursuit controller back into stop-and-go waypoint chasing and
+        # stranded all four seed-7 robots.  There is one important exception:
+        # nearest-point projection can advance to a corner while that corner
+        # is still well ahead on its incoming ray.  Keep that genuinely
+        # unreached corner mandatory until the chassis enters its normal
+        # arrival radius; once it has, constrain only future vertices.
+        first = self.index + 1
+        if self.index > 0:
+            current = self.waypoints[self.index, :2]
+            incoming = current - self.waypoints[self.index - 1, :2]
+            length = float(np.linalg.norm(incoming))
+            if length > 1e-9:
+                unit = incoming / length
+                relative = contact[:2] - current
+                ahead = float((current - contact[:2]) @ unit)
+                cross_track = abs(float(relative[0] * unit[1] - relative[1] * unit[0]))
+                if (
+                    ahead > self.arrive_radius_m
+                    and cross_track <= self.corner_tolerance_m
+                ):
+                    first = self.index
+        skipped = self.waypoints[first:candidate, :2]
+        if skipped.size == 0 or length_sq < 1e-12:
+            return 0.0
+        # Project each skipped waypoint onto the chord, clamped to the segment.
+        t = np.clip(((skipped - start) @ span) / length_sq, 0.0, 1.0)
+        nearest = start + t[:, None] * span
+        return float(np.linalg.norm(skipped - nearest, axis=1).max())
+
+    def _moving_state(self) -> RobotState:
+        """Which of the under-way states the robot is in right now."""
+        if self._below_route > self.fall_depth_m:
+            return RobotState.FALLEN
+        ahead = min(self.index + self.climb_window, len(self.waypoints) - 1)
+        rise = float(self.waypoints[ahead, 2] - self.waypoints[self.index, 2])
+        if rise > self.climb_rise_m:
+            return RobotState.CLIMBING
+        return RobotState.DRIVING
 
     def _corner_factor(self, aim: int) -> float:
         """How much to slow for the bend just past the aim point, in [0, 1]."""
@@ -442,9 +667,7 @@ class WaypointDriver:
         for side, value in (("l", left), ("r", right)):
             for row in ("f", "b"):
                 name = f"a_{self.spec.name}_wheel_{side}{row}"
-                actuator = mujoco.mj_name2id(
-                    model, mujoco.mjtObj.mjOBJ_ACTUATOR, name
-                )
+                actuator = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, name)
                 if actuator >= 0:
                     data.ctrl[actuator] = float(np.clip(value, -limit, limit))
 
@@ -457,9 +680,7 @@ def place_robot(
     yaw_rad: float = 0.0,
 ) -> None:
     """Teleport the robot to `position`, upright and at rest."""
-    joint = mujoco.mj_name2id(
-        model, mujoco.mjtObj.mjOBJ_JOINT, f"{spec.name}_root"
-    )
+    joint = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, f"{spec.name}_root")
     if joint < 0:
         raise KeyError(f"no free joint for robot {spec.name!r}")
     adr = model.jnt_qposadr[joint]

@@ -11,7 +11,7 @@ never by mutation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 # --- Physical constants -------------------------------------------------------
 
@@ -28,7 +28,7 @@ VOXEL_SIZE_M: float = 0.4
 HFIELD_CELL_M: float = 0.15
 
 
-class RoomKind(str, Enum):
+class RoomKind(StrEnum):
     """Semantic room class.
 
     The kind drives fuel load (hazard, phase 1) and traversal semantics, so it
@@ -129,7 +129,10 @@ class BuildingParams:
         return w * d
 
     def __post_init__(self) -> None:
-        _require(self.n_storeys >= 2, "n_storeys must be >= 2 for a stairwell to matter")
+        _require(
+            self.n_storeys >= 2,
+            "n_storeys must be >= 2 for a stairwell to matter",
+        )
         _require(self.storey_height_m > 0.0, "storey_height_m must be positive")
         _require(all(d > 0.0 for d in self.footprint_m), "footprint must be positive")
         _require(0.0 <= self.split_jitter < 0.5, "split_jitter must be in [0, 0.5)")
@@ -184,15 +187,17 @@ class CollapseParams:
         _require(self.settle_seconds > 0.0, "settle_seconds must be positive")
         _require(self.blast_radius_m > 0.0, "blast_radius_m must be positive")
         _require(
-            0.0 < self.min_destroyed_column_fraction
-            <= self.max_destroyed_column_fraction < 1.0,
+            0.0
+            < self.min_destroyed_column_fraction
+            <= self.max_destroyed_column_fraction
+            < 1.0,
             "destroyed-column fractions must satisfy 0 < min <= max < 1",
         )
         _require(self.timestep_s > 0.0, "timestep_s must be positive")
 
     @property
     def n_settle_steps(self) -> int:
-        return int(round(self.settle_seconds / self.timestep_s))
+        return round(self.settle_seconds / self.timestep_s)
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,7 +268,7 @@ class TraversabilityParams:
         """Free vertical cells needed above a standable surface."""
         import math
 
-        return max(1, int(math.ceil(self.min_clearance_m / self.voxel_height_m)))
+        return max(1, math.ceil(self.min_clearance_m / self.voxel_height_m))
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,6 +278,42 @@ class CascadeParams:
     building: BuildingParams = field(default_factory=BuildingParams)
     collapse: CollapseParams = field(default_factory=CollapseParams)
     traversability: TraversabilityParams = field(default_factory=TraversabilityParams)
+
+
+def compact_demo_params() -> CascadeParams:
+    """A legible, fast disaster preset for the end-to-end showpiece.
+
+    The research-scale world remains the default.  This variant uses fewer,
+    larger bays so losing one supported plate reads as a section collapse on
+    screen instead of as a couple of tiny fragments in a wide building shot.
+    """
+
+    return CascadeParams(
+        building=BuildingParams(
+            n_storeys=3,
+            footprint_m=(14.0, 10.0),
+            bay_depth=3,
+            room_depth=1,
+            min_bay_area_m2=16.0,
+            min_room_area_m2=7.0,
+            min_room_side_m=2.0,
+            max_room_aspect=3.2,
+            n_exits=2,
+            exit_width_m=1.6,
+            n_stairwells=1,
+            n_shafts=1,
+            n_ducts=0,
+            stairwell_size_m=(4.0, 2.8),
+            shaft_size_m=(1.8, 1.8),
+            duct_size_m=(1.2, 1.2),
+        ),
+        collapse=CollapseParams(
+            blast_radius_m=2.2,
+            settle_seconds=6.0,
+            min_destroyed_column_fraction=0.15,
+            max_destroyed_column_fraction=0.40,
+        ),
+    )
 
 
 def _require(condition: bool, message: str) -> None:

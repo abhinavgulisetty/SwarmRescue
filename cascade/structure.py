@@ -18,7 +18,7 @@ and releases its weld when the damage crosses that member's threshold.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from .floorplan import FloorPlan, Room
 from .geometry import EPS_M, Axis, Rect
@@ -123,7 +123,7 @@ STAIR_FLIGHT_WIDTH_FRACTION: float = 0.45
 STAIR_MIN_LANDING_M: float = 0.55
 
 
-class MemberKind(str, Enum):
+class MemberKind(StrEnum):
     COLUMN = "column"
     BEAM = "beam"
     SLAB = "slab"
@@ -271,7 +271,7 @@ def _quantize(x: float, y: float) -> tuple[int, int]:
 
 
 def _q(v: float) -> int:
-    return int(round(v / NODE_MERGE_TOL_M))
+    return round(v / NODE_MERGE_TOL_M)
 
 
 # --- member construction -----------------------------------------------------
@@ -296,9 +296,7 @@ def build_structure(plan: FloorPlan) -> Structure:
 
         members.extend(_columns(nodes, storey, z_floor, params))
         members.extend(_beams(spans, storey, z_ceiling, params))
-        members.extend(
-            _slabs(plan.bays, storey, z_ceiling, params, connector_openings)
-        )
+        members.extend(_slabs(plan.bays, storey, z_ceiling, params, connector_openings))
 
         walls = _walls(
             plan.storeys[storey].rooms,
@@ -403,9 +401,7 @@ def slab_pieces(
     for bay in bays:
         pieces = [bay]
         for hole in openings:
-            pieces = [
-                piece for part in pieces for piece in _subtract_rect(part, hole)
-            ]
+            pieces = [piece for part in pieces for piece in _subtract_rect(part, hole)]
         out.append(tuple(pieces))
     return tuple(out)
 
@@ -473,7 +469,6 @@ def _subtract_rect(outer: Rect, hole: Rect) -> list[Rect]:
     return pieces
 
 
-
 def _stairs(
     plan: FloorPlan, storey: int, z_floor: float, params: BuildingParams
 ) -> list[Member]:
@@ -507,7 +502,6 @@ def _stairs(
         # Two flights sit side by side across the stairwell's short axis.
         offsets = (-0.25 * side_extent, +0.25 * side_extent)
         run_lo = rect.x0 if along_x else rect.y0
-        run_hi = rect.x1 if along_x else rect.y1
         strip = 0.5 * (run_extent - run)
         run_start = run_lo + strip
 
@@ -770,8 +764,7 @@ def _walls(
                     center, size = (at, mid, z_floor + 0.5 * h), (t, length, h)
                 out.append(
                     Member(
-                        name=f"wall_s{storey}_r{room_index}_"
-                        f"{axis.value}_{len(out)}",
+                        name=f"wall_s{storey}_r{room_index}_{axis.value}_{len(out)}",
                         kind=MemberKind.WALL,
                         center=center,
                         size=size,

@@ -183,9 +183,7 @@ def partition_bays(
     footprint: Rect, params: BuildingParams, rng: np.random.Generator
 ) -> tuple[Rect, ...]:
     """Recursive BSP down to bay granularity (the shared structural grid)."""
-    return _bsp(
-        footprint, params, rng, params.bay_depth, params.min_bay_area_m2
-    )
+    return _bsp(footprint, params, rng, params.bay_depth, params.min_bay_area_m2)
 
 
 def subdivide_bay(
@@ -239,11 +237,9 @@ def plan_connectors(
         shaft, remainder = _carve_connector(cells[host], width, depth, rng)
         # Guillotine the host cell into the shaft plus rectangular leftovers,
         # so a duct is duct-sized instead of inheriting a whole room.
-        final_cells = cells[:host] + (shaft,) + remainder + cells[host + 1 :]
+        final_cells = (*cells[:host], shaft, *remainder, *cells[host + 1 :])
         plans.append(
-            ConnectorPlan(
-                bay=bay_index, kind=kind, cells=final_cells, cell_index=host
-            )
+            ConnectorPlan(bay=bay_index, kind=kind, cells=final_cells, cell_index=host)
         )
         remaining.pop(pick)
         scores = np.delete(scores, pick)
@@ -362,12 +358,8 @@ def carve_corridor_spine(bays: tuple[Rect, ...]) -> tuple[Rect, ...]:
     for i, j in _mst_edges(terminals):
         (ax, ay), (bx, by) = terminals[i], terminals[j]
         # Horizontal leg then vertical leg -- an L through the corner (bx, ay).
-        legs.append(
-            Rect(min(ax, bx) - half, ay - half, max(ax, bx) + half, ay + half)
-        )
-        legs.append(
-            Rect(bx - half, min(ay, by) - half, bx + half, max(ay, by) + half)
-        )
+        legs.append(Rect(min(ax, bx) - half, ay - half, max(ax, bx) + half, ay + half))
+        legs.append(Rect(bx - half, min(ay, by) - half, bx + half, max(ay, by) + half))
     return tuple(legs)
 
 
@@ -428,9 +420,7 @@ def build_storey(
             # Replay the frozen subdivision so the shaft is vertically aligned.
             for cell_index, cell in enumerate(plan.cells):
                 kind = plan.kind if cell_index == plan.cell_index else RoomKind.OFFICE
-                rooms.append(
-                    Room(rect=cell, kind=kind, storey=storey, bay=bay_index)
-                )
+                rooms.append(Room(rect=cell, kind=kind, storey=storey, bay=bay_index))
             continue
         for cell in subdivide_bay(bay, params, rng):
             rooms.append(
@@ -507,9 +497,7 @@ def place_doors(
             chosen.append((a, b, wall))
 
     chosen = _repair_connectivity(chosen, candidates, rooms, corridors)
-    return tuple(
-        _make_door(storey, a, b, wall, params, rng) for a, b, wall in chosen
-    )
+    return tuple(_make_door(storey, a, b, wall, params, rng) for a, b, wall in chosen)
 
 
 def _make_door(
@@ -646,7 +634,5 @@ def place_exits(
         half = 0.5 * params.exit_width_m
         along = float(rng.uniform(lo + half, hi - half))
         center = (at, along) if axis is Axis.X else (along, at)
-        exits.append(
-            Exit(axis=axis, at=at, center=center, width=params.exit_width_m)
-        )
+        exits.append(Exit(axis=axis, at=at, center=center, width=params.exit_width_m))
     return tuple(exits)
