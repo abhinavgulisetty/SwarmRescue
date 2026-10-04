@@ -115,81 +115,101 @@ def deadline_route(
         )
 
     storage = arena if arena is not None else MCUArena(200 * 1024)
-    labels = np.frombuffer(storage.alloc(max_labels * 4 * 4), dtype=np.int32).reshape(
-        -1, 4
-    )
-    live = np.frombuffer(storage.alloc(max_labels), dtype=np.uint8)
-    live[:] = 0
-    labels[0] = (start, 0, 0, -1)
-    live[0] = 1
-    per_node = [[] for _ in range(graph.n_nodes)]
-    per_node[start].append(0)
-    used = 1
-    queue = [(0, 0, 0)]  # objective, elapsed, label id
-    while queue:
-        cost, elapsed, label_id = heapq.heappop(queue)
-        if not live[label_id]:
-            continue
-        node = int(labels[label_id, 0])
-        if node in goal_set:
-            route = [node]
-            previous = int(labels[label_id, 3])
-            while previous >= 0:
-                route.append(int(labels[previous, 0]))
-                previous = int(labels[previous, 3])
-            route.reverse()
-            return DeadlineRoute(
-                tuple(route),
-                elapsed,
-                cost / Q16_SCALE,
-                True,
-                True,
-                False,
-                used,
-                storage.high_water,
-            )
-        for target, steps, edge_cost in adjacent[node]:
-            next_time, next_cost = elapsed + steps, cost + edge_cost
-            if next_time > available_steps or next_cost >= INT32_MAX:
+    offset = storage.used
+    aligned = (offset + 3) & ~3
+    # Four int32 label fields plus a live byte. Never expand a caller's arena.
+    max_labels = min(max_labels, max(0, (storage.capacity - aligned) // 17))
+    if max_labels == 0:
+        return DeadlineRoute(
+            tuple(fast_route),
+            fast_time,
+            fast_cost / Q16_SCALE,
+            True,
+            False,
+            True,
+            0,
+            storage.high_water,
+        )
+    try:
+        labels = np.frombuffer(
+            storage.alloc(max_labels * 4 * 4), dtype=np.int32
+        ).reshape(-1, 4)
+        live = np.frombuffer(storage.alloc(max_labels), dtype=np.uint8)
+        live[:] = 0
+        labels[0] = (start, 0, 0, -1)
+        live[0] = 1
+        per_node = [[] for _ in range(graph.n_nodes)]
+        per_node[start].append(0)
+        used = 1
+        queue = [(0, 0, 0)]  # objective, elapsed, label id
+        while queue:
+            cost, elapsed, label_id = heapq.heappop(queue)
+            if not live[label_id]:
                 continue
-            frontier = per_node[target]
-            if any(
-                live[index]
-                and labels[index, 1] <= next_time
-                and labels[index, 2] <= next_cost
-                for index in frontier
-            ):
-                continue
-            if used == max_labels:
+            node = int(labels[label_id, 0])
+            if node in goal_set:
+                route = [node]
+                previous = int(labels[label_id, 3])
+                while previous >= 0:
+                    route.append(int(labels[previous, 0]))
+                    previous = int(labels[previous, 3])
+                route.reverse()
                 return DeadlineRoute(
-                    tuple(fast_route),
-                    fast_time,
-                    fast_cost / Q16_SCALE,
+                    tuple(route),
+                    elapsed,
+                    cost / Q16_SCALE,
+                    True,
                     True,
                     False,
-                    True,
                     used,
                     storage.high_water,
                 )
-            for index in frontier:
-                if labels[index, 1] >= next_time and labels[index, 2] >= next_cost:
-                    live[index] = 0
-            labels[used] = (target, next_time, next_cost, label_id)
-            live[used] = 1
-            frontier.append(used)
-            heapq.heappush(queue, (next_cost, next_time, used))
-            used += 1
-    # Rounding/saturation may make a finite path unrepresentable in labels.
-    return DeadlineRoute(
-        tuple(fast_route),
-        fast_time,
-        fast_cost / Q16_SCALE,
-        True,
-        False,
-        True,
-        used,
-        storage.high_water,
-    )
+            for target, steps, edge_cost in adjacent[node]:
+                next_time, next_cost = elapsed + steps, cost + edge_cost
+                if next_time > available_steps or next_cost >= INT32_MAX:
+                    continue
+                frontier = per_node[target]
+                if any(
+                    live[index]
+                    and labels[index, 1] <= next_time
+                    and labels[index, 2] <= next_cost
+                    for index in frontier
+                ):
+                    continue
+                if used == max_labels:
+                    return DeadlineRoute(
+                        tuple(fast_route),
+                        fast_time,
+                        fast_cost / Q16_SCALE,
+                        True,
+                        False,
+                        True,
+                        used,
+                        storage.high_water,
+                    )
+                for index in frontier:
+                    if labels[index, 1] >= next_time and labels[index, 2] >= next_cost:
+                        live[index] = 0
+                labels[used] = (target, next_time, next_cost, label_id)
+                live[used] = 1
+                frontier.append(used)
+                heapq.heappush(queue, (next_cost, next_time, used))
+                used += 1
+        # Rounding/saturation may make a finite path unrepresentable in labels.
+        return DeadlineRoute(
+            tuple(fast_route),
+            fast_time,
+            fast_cost / Q16_SCALE,
+            True,
+            False,
+            True,
+            used,
+            storage.high_water,
+        )
+
+    finally:
+        # Labels are scratch; preserve the policy and unrelated arena prefix.
+        storage.used = offset
 
 
 def safeguard_route_deadline(

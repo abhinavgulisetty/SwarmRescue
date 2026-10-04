@@ -3,10 +3,12 @@
 from itertools import pairwise, permutations
 
 import numpy as np
+import pytest
 
 from cascade.extract import TraversabilityGraph, VoxelGrid
 from ember.routing.deadline import deadline_route
 from ember.voi import TokenBucket, schedule_coverage_updates, solve_policy_occupancy
+from mcu import MCUArena
 from mcu.log_lmdp import solve_log_q16
 
 
@@ -160,3 +162,34 @@ def test_safeguard_preserves_feasible_routes_and_replaces_only_timeouts():
     )
     assert rescued.feasible and rescued.route == (0, 1, 4)
     assert rescued.proposal_replaced
+
+
+@pytest.mark.parametrize("remaining", (0, 1, 16, 17, 34, 1024, 4096 * 17))
+def test_deadline_scratch_respects_remaining_arena_and_restores_prefix(remaining):
+    graph = _graph()
+    arena = MCUArena(4 + remaining)
+    prefix = arena.alloc(3)
+    prefix[:] = b"abc"
+    for _ in range(3):
+        result = deadline_route(
+            graph,
+            0,
+            (4,),
+            np.array([0.0, 10.0, 0.0, 0.0, 0.0]),
+            available_steps=3,
+            walking_speed_m_s=1.0,
+            dt_s=1.0,
+            arena=arena,
+        )
+        assert result.feasible
+        assert result.travel_steps <= 3
+        assert result.labels_used <= remaining // 17
+        assert arena.used == 3
+        assert arena.high_water <= arena.capacity
+        assert bytes(prefix) == b"abc"
+        if remaining < 34:
+            assert result.resource_fallback and not result.optimal
+            assert result.route == (0, 1, 4)
+        if remaining >= 1024:
+            assert result.optimal and not result.resource_fallback
+            assert result.route == (0, 2, 3, 4)
