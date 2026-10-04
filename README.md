@@ -564,3 +564,8 @@ budgets, replay tests, source archives and reproduction. This is a coordinated
 host map lifecycle, not distributed map consensus or cross-session replay
 protection. Whole embedded RAM, measured timing, deployed sensors, coupled
 localization and physical evacuation remain unfinished.
+
+Experimental live sensing is available with `--sensing-interval-s 2` in
+`--distributed` missions. It updates hazard beliefs independently of rubble map
+refreshes. See [the paired sensing results](docs/hazard-sensing.md), including the
+seed 42 regression; the default remains disabled.

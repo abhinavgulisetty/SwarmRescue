@@ -395,6 +395,9 @@ class DemoResult:
     latest_source_cell_evidence: bool = False
     replaced_source_cell_factors: int = 0
     stale_source_cell_factors: int = 0
+    hazard_sensing_interval_s: float = 0.0
+    hazard_only_refreshes: int = 0
+    hazard_only_replans: int = 0
     map_epoch: int = 0
     rejected_map_epoch_packets: int = 0
     rejected_map_epoch_factors: int = 0
@@ -607,6 +610,7 @@ def run_demo(
     distributed_physical: bool = False,
     region_cells: int = 0,
     latest_evidence: bool = False,
+    sensing_interval_s: float = 0.0,
 ) -> DemoResult:
     if live_disaster and n_robots < 3:
         raise ValueError("live autonomous search requires at least three robots")
@@ -616,6 +620,10 @@ def run_demo(
         raise ValueError("regional architecture requires distributed physical mode")
     if latest_evidence and not distributed_physical:
         raise ValueError("latest evidence requires distributed physical mode")
+    if not np.isfinite(sensing_interval_s) or sensing_interval_s < 0:
+        raise ValueError("sensing interval must be finite and nonnegative")
+    if sensing_interval_s and not distributed_physical:
+        raise ValueError("periodic sensing requires distributed physical mode")
     if distributed_physical:
         params = collision_aware_params(params, RobotSpec())
     building = params.building
@@ -848,6 +856,9 @@ def run_demo(
     search_result: CooperativeSearchResult | None = None
     search_targets: list[np.ndarray | None] = [None] * len(swarm.members)
     pending_geometry_refresh_s: float | None = None
+    last_hazard_scan_s = float("inf")
+    hazard_only_refreshes = 0
+    hazard_only_replans = 0
     geometry_poses = settled_poses(model, data, structure, snap_to_authored=False)
     geometry_radii = {
         member.name: float(np.linalg.norm(member.half_extents))
@@ -927,6 +938,7 @@ def run_demo(
                             data=data,
                             scan_radius_m=LIVE_ROUTING_SCAN_RADIUS_M,
                         )
+                        last_hazard_scan_s = elapsed_s
                     for index, member in enumerate(swarm.members):
                         surface_position = np.asarray(
                             data.xpos[member.body_id], dtype=np.float64
@@ -1043,42 +1055,57 @@ def run_demo(
                         >= 0.5 * params.traversability.voxel_size_m
                     ):
                         pending_geometry_refresh_s = elapsed_s
+                geometry_due = (
+                    bool(new_failed)
+                    if physical_team is None
+                    else pending_geometry_refresh_s is not None
+                    and elapsed_s >= pending_geometry_refresh_s
+                )
+                sensing_due = (
+                    physical_team is not None
+                    and sensing_interval_s > 0
+                    and elapsed_s - last_hazard_scan_s >= sensing_interval_s
+                    and any(not member.driver.finished for member in swarm.members)
+                )
                 if (
-                    (
-                        new_failed
-                        if physical_team is None
-                        else (
-                            pending_geometry_refresh_s is not None
-                            and elapsed_s >= pending_geometry_refresh_s
-                        )
-                    )
+                    (geometry_due or sensing_due)
                     and search_result is not None
                     and (physical_team is not None or not collapse_routing_results)
                 ):
-                    if physical_team is not None:
-                        stage.collapse_replans = 0
-                        stage.collapse_retained = 0
-                        stage.retained_robot_names.clear()
-                    stage.collapse_event_s = elapsed_s
-                    stage.camera.reset()
+                    if geometry_due:
+                        if physical_team is not None:
+                            stage.collapse_replans = 0
+                            stage.collapse_retained = 0
+                            stage.retained_robot_names.clear()
+                        stage.collapse_event_s = elapsed_s
+                        stage.camera.reset()
+                    else:
+                        hazard_only_refreshes += 1
                     replan_started = perf_counter()
                     if physical_team is not None:
-                        graph = ground_mission_graph(
-                            rebuild_physical_graph(
-                                model,
-                                data,
-                                structure,
-                                params,
-                                margin_m=4.0,
+                        if geometry_due:
+                            graph = ground_mission_graph(
+                                rebuild_physical_graph(
+                                    model,
+                                    data,
+                                    structure,
+                                    params,
+                                    margin_m=4.0,
+                                )
                             )
-                        )
-                        physical_team.replace_graph(graph)
-                        geometry_poses = settled_poses(
-                            model, data, structure, snap_to_authored=False
-                        )
-                        last_geometry_refresh_s = elapsed_s
-                        stage.geometry_revisions = physical_team.geometry_revisions
-                        stage.graph_positions = graph.world_positions()
+                            physical_team.replace_graph(graph)
+                            geometry_poses = settled_poses(
+                                model, data, structure, snap_to_authored=False
+                            )
+                            last_geometry_refresh_s = elapsed_s
+                            stage.geometry_revisions = physical_team.geometry_revisions
+                            stage.graph_positions = graph.world_positions()
+                            pending_geometry_refresh_s = None
+                            print(
+                                f"[ember] current geometry rebuilt: "
+                                f"{graph.n_nodes} cells, "
+                                f"{graph.n_edges} moves"
+                            )
                         physical_team.observe_and_exchange(
                             thermal_domain,
                             thermal_state,
@@ -1090,11 +1117,8 @@ def run_demo(
                             scan_radius_m=LIVE_COLLAPSE_SCAN_RADIUS_M,
                             beta=2.0,
                         )
-                        pending_geometry_refresh_s = None
-                        print(
-                            f"[ember] current geometry rebuilt: {graph.n_nodes} cells, "
-                            f"{graph.n_edges} moves"
-                        )
+                        last_hazard_scan_s = elapsed_s
+                    response_label = "collapse" if geometry_due else "hazard sensing"
                     for index, member in enumerate(swarm.members):
                         target = search_targets[index]
                         if target is None:
@@ -1107,10 +1131,11 @@ def run_demo(
                         if member.driver.finished or (
                             len(previous) <= 8 and physical_team is None
                         ):
-                            stage.collapse_retained += 1
-                            stage.retained_robot_names.add(member.name)
+                            if geometry_due:
+                                stage.collapse_retained += 1
+                                stage.retained_robot_names.add(member.name)
                             print(
-                                f"[ember] {member.name} collapse response: "
+                                f"[ember] {member.name} {response_label} response: "
                                 "remaining route already clear; retained"
                             )
                             continue
@@ -1147,7 +1172,8 @@ def run_demo(
                                 beta=2.0,
                             )
                         )
-                        collapse_routing_results.append(result)
+                        if geometry_due:
+                            collapse_routing_results.append(result)
                         stage.route_results[member.name] = result
                         stage.rejected_routes[member.name] = previous.copy()
                         changed = False
@@ -1160,13 +1186,16 @@ def run_demo(
                                     "· SAFE ROUTE"
                                 ),
                             )
-                            if changed:
-                                stage.collapse_replans += 1
-                            else:
-                                stage.collapse_retained += 1
-                                stage.retained_robot_names.add(member.name)
+                            if geometry_due:
+                                if changed:
+                                    stage.collapse_replans += 1
+                                else:
+                                    stage.collapse_retained += 1
+                                    stage.retained_robot_names.add(member.name)
+                            elif changed:
+                                hazard_only_replans += 1
                         print(
-                            f"[ember] {member.name} collapse response: "
+                            f"[ember] {member.name} {response_label} response: "
                             f"route {'replaced' if changed else 'retained'} "
                             f"in {result.sweeps} sweeps"
                         )
@@ -1332,6 +1361,9 @@ def run_demo(
         )
         if physical_team
         else 0,
+        hazard_sensing_interval_s=sensing_interval_s,
+        hazard_only_refreshes=hazard_only_refreshes,
+        hazard_only_replans=hazard_only_replans,
         latest_source_cell_evidence=latest_evidence,
         replaced_source_cell_factors=sum(
             r.replaced_factors for r in physical_team.robots
@@ -2195,6 +2227,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cascade.demo", description=__doc__)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument(
+        "--sensing-interval-s",
+        type=float,
+        default=0.0,
+        help="experimental periodic visible hazard scans and replanning; "
+        "0 disables; requires --distributed",
+    )
+    parser.add_argument(
         "--latest-evidence",
         action="store_true",
         help="experimental replacement of each source/cell's old reading; "
@@ -2249,6 +2288,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.distributed and not args.live_disaster:
         parser.error("--distributed requires --live-disaster")
 
+    if (
+        not np.isfinite(args.sensing_interval_s)
+        or args.sensing_interval_s < 0
+        or (args.sensing_interval_s and not args.distributed)
+    ):
+        parser.error(
+            "--sensing-interval-s must be finite, nonnegative, "
+            "and requires --distributed"
+        )
     if args.latest_evidence and not args.distributed:
         parser.error("--latest-evidence requires --distributed")
     if args.region_cells < 0 or (args.region_cells and not args.distributed):
@@ -2281,6 +2329,7 @@ def main(argv: list[str] | None = None) -> int:
         distributed_physical=args.distributed,
         region_cells=args.region_cells,
         latest_evidence=args.latest_evidence,
+        sensing_interval_s=args.sensing_interval_s,
     )
     print(result.report())
     report_path = args.report or (

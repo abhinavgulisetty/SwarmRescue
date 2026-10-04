@@ -389,3 +389,11 @@ budgets, replay tests, source archives and reproduction. This is a coordinated
 host map lifecycle, not distributed map consensus or cross-session replay
 protection. Whole embedded RAM, measured timing, deployed sensors, coupled
 localization and physical evacuation remain unfinished.
+
+### Independent hazard sensing
+
+Added opt-in periodic visible scans and radio updates without geometry rebuilds.
+All 550 tests and runtime Ruff pass; six physical runs reach all assigned sites.
+Seed 7 improves, but flat seed 42 becomes slower, more exposed and more expensive
+in radio traffic. Periodic sensing remains experimental; a route-switch safeguard
+is the next evaluation. See [the sensing report](docs/hazard-sensing.md).
