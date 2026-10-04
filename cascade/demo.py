@@ -31,7 +31,11 @@ import numpy as np
 
 from ember.localization import RSSIConfig, rssi_to_range
 from ember.manifest import capture_manifest, write_source_bundle
-from ember.physical import PhysicalRouteResult, plan_belief_route
+from ember.physical import (
+    PhysicalRouteResult,
+    hazard_route_change_allowed,
+    plan_belief_route,
+)
 from ember.physical_team import (
     PhysicalRobotTeam,
     collision_aware_params,
@@ -398,6 +402,8 @@ class DemoResult:
     hazard_sensing_interval_s: float = 0.0
     hazard_only_refreshes: int = 0
     hazard_only_replans: int = 0
+    hazard_switch_min_gain: float = 0.15
+    hazard_switches_suppressed: int = 0
     map_epoch: int = 0
     rejected_map_epoch_packets: int = 0
     rejected_map_epoch_factors: int = 0
@@ -611,6 +617,7 @@ def run_demo(
     region_cells: int = 0,
     latest_evidence: bool = False,
     sensing_interval_s: float = 0.0,
+    hazard_switch_min_gain: float = 0.15,
 ) -> DemoResult:
     if live_disaster and n_robots < 3:
         raise ValueError("live autonomous search requires at least three robots")
@@ -622,6 +629,8 @@ def run_demo(
         raise ValueError("latest evidence requires distributed physical mode")
     if not np.isfinite(sensing_interval_s) or sensing_interval_s < 0:
         raise ValueError("sensing interval must be finite and nonnegative")
+    if not np.isfinite(hazard_switch_min_gain) or not 0 <= hazard_switch_min_gain < 1:
+        raise ValueError("route-switch gain must be finite in [0, 1)")
     if sensing_interval_s and not distributed_physical:
         raise ValueError("periodic sensing requires distributed physical mode")
     if distributed_physical:
@@ -859,6 +868,7 @@ def run_demo(
     last_hazard_scan_s = float("inf")
     hazard_only_refreshes = 0
     hazard_only_replans = 0
+    hazard_switches_suppressed = 0
     geometry_poses = settled_poses(model, data, structure, snap_to_authored=False)
     geometry_radii = {
         member.name: float(np.linalg.norm(member.half_extents))
@@ -1177,7 +1187,17 @@ def run_demo(
                         stage.route_results[member.name] = result
                         stage.rejected_routes[member.name] = previous.copy()
                         changed = False
-                        if result.converged:
+                        switch_allowed = geometry_due or hazard_route_change_allowed(
+                            previous,
+                            result.waypoints,
+                            result.graph_positions,
+                            result.risk_cost,
+                            min_gain=hazard_switch_min_gain,
+                            deadline_intervened=result.deadline_intervened,
+                        )
+                        if not switch_allowed:
+                            hazard_switches_suppressed += 1
+                        if result.converged and switch_allowed:
                             changed = swarm.reroute(
                                 index,
                                 result.waypoints,
@@ -1364,6 +1384,8 @@ def run_demo(
         hazard_sensing_interval_s=sensing_interval_s,
         hazard_only_refreshes=hazard_only_refreshes,
         hazard_only_replans=hazard_only_replans,
+        hazard_switch_min_gain=hazard_switch_min_gain,
+        hazard_switches_suppressed=hazard_switches_suppressed,
         latest_source_cell_evidence=latest_evidence,
         replaced_source_cell_factors=sum(
             r.replaced_factors for r in physical_team.robots
@@ -2227,6 +2249,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cascade.demo", description=__doc__)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument(
+        "--hazard-switch-min-gain",
+        type=float,
+        default=0.15,
+        help="minimum private path-risk improvement for hazard-only route switches; "
+        "0 disables inertia",
+    )
+    parser.add_argument(
         "--sensing-interval-s",
         type=float,
         default=0.0,
@@ -2297,6 +2326,11 @@ def main(argv: list[str] | None = None) -> int:
             "--sensing-interval-s must be finite, nonnegative, "
             "and requires --distributed"
         )
+    if (
+        not np.isfinite(args.hazard_switch_min_gain)
+        or not 0 <= args.hazard_switch_min_gain < 1
+    ):
+        parser.error("--hazard-switch-min-gain must be finite in [0, 1)")
     if args.latest_evidence and not args.distributed:
         parser.error("--latest-evidence requires --distributed")
     if args.region_cells < 0 or (args.region_cells and not args.distributed):
@@ -2330,6 +2364,7 @@ def main(argv: list[str] | None = None) -> int:
         region_cells=args.region_cells,
         latest_evidence=args.latest_evidence,
         sensing_interval_s=args.sensing_interval_s,
+        hazard_switch_min_gain=args.hazard_switch_min_gain,
     )
     print(result.report())
     report_path = args.report or (

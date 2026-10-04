@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
+from itertools import pairwise
 
 import numpy as np
 
@@ -125,6 +126,65 @@ class PhysicalRouteResult:
         """Whether the route also improves the common observer-only proxy."""
 
         return self.planned_proxy_cost < self.baseline_proxy_cost
+
+
+def hazard_route_change_allowed(
+    previous, proposed, positions, risk, *, min_gain=0.15, deadline_intervened=False
+):
+    """Host route-switch inertia using the same private field for both paths.
+
+    Integrate piecewise nearest-cell risk at <=0.125 m spacing so waypoint
+    density does not decide the comparison. This is a modeled path cost, not
+    observer truth or a calibrated exposure/time bound. Geometry invalidation
+    bypasses this guard. A shortening deadline intervention also bypasses it.
+    """
+    from scipy.spatial import cKDTree
+
+    if not math.isfinite(min_gain) or not 0 <= min_gain < 1:
+        raise ValueError("route-switch gain must be finite in [0, 1)")
+    if min_gain == 0:
+        return True
+    positions, risk = np.asarray(positions), np.asarray(risk)
+    if (
+        positions.ndim != 2
+        or positions.shape[1] != 3
+        or risk.shape != (len(positions),)
+        or not len(positions)
+        or not np.all(np.isfinite(positions))
+        or not np.all(np.isfinite(risk))
+        or np.any(risk < 0)
+    ):
+        raise ValueError("route-switch field must have finite positions and risk")
+    tree = cKDTree(positions)
+
+    def cost(path):
+        path = np.asarray(path, dtype=float)
+        if (
+            path.ndim != 2
+            or path.shape[1] != 3
+            or not len(path)
+            or not np.all(np.isfinite(path))
+        ):
+            raise ValueError("route-switch path must contain finite 3D waypoints")
+        distance, integrated = 0.0, 0.0
+        for start, end in pairwise(path):
+            length = float(np.linalg.norm(end - start))
+            if length == 0:
+                continue
+            count = max(1, math.ceil(length / 0.125))
+            samples = start + ((np.arange(count) + 0.5) / count)[:, None] * (
+                end - start
+            )
+            _, nodes = tree.query(samples)
+            integrated += length * float(np.mean(risk[nodes]))
+            distance += length
+        return integrated, distance
+
+    old_cost, old_length = cost(previous)
+    new_cost, new_length = cost(proposed)
+    if deadline_intervened and new_length < old_length:
+        return True
+    return old_cost > 0 and new_cost <= (1 - min_gain) * old_cost
 
 
 def plan_belief_route(
@@ -278,7 +338,8 @@ def plan_belief_route(
             distances = np.asarray(travel_edge_lengths_m, dtype=float)
             if (
                 distances.shape != (graph.n_edges,)
-                or not np.all(np.isfinite(distances)) or np.any(distances <= 0)
+                or not np.all(np.isfinite(distances))
+                or np.any(distances <= 0)
             ):
                 raise ValueError("travel edge lengths must be finite and positive")
         metric_graph = replace(graph, edge_cost=distances)

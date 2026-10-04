@@ -85,3 +85,55 @@ def test_stationary_geometry_observations_follow_heating_and_cooling():
     assert means[2] < means[1] - 1
     assert slots[0] == slots[1] == slots[2]
     assert replaced[2] > replaced[1] > replaced[0]
+
+
+@pytest.mark.parametrize("gain", [-1, 1, float("nan"), float("inf")])
+def test_switch_gain_bounds(gain):
+    from ember.physical import hazard_route_change_allowed
+
+    with pytest.raises(ValueError, match="route-switch gain"):
+        hazard_route_change_allowed([], [], [], [], min_gain=gain)
+
+
+def test_hysteresis_rejects_small_detours_but_accepts_hot_corridor_escape():
+    from ember.physical import hazard_route_change_allowed
+
+    positions = np.array(
+        [[0, 0, 0], [1, 0, 0], [2, 0, 0], [0, 1, 0], [1, 1, 0], [2, 1, 0]], dtype=float
+    )
+    direct = positions[[0, 1, 2]]
+    detour = positions[[0, 3, 4, 5, 2]]
+    assert not hazard_route_change_allowed(direct, detour, positions, np.ones(6))
+    hot = np.array([1, 10, 1, 1, 1, 1])
+    assert hazard_route_change_allowed(direct, detour, positions, hot)
+
+
+def test_switch_cost_is_independent_of_waypoint_density():
+    from ember.physical import hazard_route_change_allowed
+
+    positions = np.array([[0, 0, 0], [1, 0, 0], [2, 0, 0]], dtype=float)
+    assert not hazard_route_change_allowed(
+        positions[[0, 2]], positions, positions, np.ones(3)
+    )
+    assert not hazard_route_change_allowed(
+        positions, positions[[0, 2]], positions, np.ones(3)
+    )
+
+
+def test_deadline_intervention_only_bypasses_guard_for_shortening():
+    from ember.physical import hazard_route_change_allowed
+
+    positions = np.array([[0, 0, 0], [1, 0, 0], [2, 0, 0], [1, 1, 0]], dtype=float)
+    direct, detour = positions[[0, 1, 2]], positions[[0, 3, 2]]
+    assert hazard_route_change_allowed(
+        detour, direct, positions, np.ones(4), deadline_intervened=True
+    )
+    assert not hazard_route_change_allowed(
+        direct, detour, positions, np.ones(4), deadline_intervened=True
+    )
+
+
+def test_zero_gain_reproduces_unconditional_switching():
+    from ember.physical import hazard_route_change_allowed
+
+    assert hazard_route_change_allowed([], [], [], [], min_gain=0)

@@ -397,3 +397,16 @@ All 550 tests and runtime Ruff pass; six physical runs reach all assigned sites.
 Seed 7 improves, but flat seed 42 becomes slower, more exposed and more expensive
 in radio traffic. Periodic sensing remains experimental; a route-switch safeguard
 is the next evaluation. See [the sensing report](docs/hazard-sensing.md).
+
+
+### Hazard-only route-switch safeguard
+
+Committed sensing now has an experimental private-belief path-integral switch
+threshold. Geometry responses bypass it; shortening deadline interventions do
+also. All 558 tests and runtime Ruff pass, and seven additional physical runs
+reach all sites. In seed 42, the guard cuts hazard-only route changes from 33 to
+3, improves arrival by 3.288 seconds and lowers modeled search exposure about 3%
+against unconditional sensing. It still trails the geometry-only control and
+loses gains in flat seed 7. Sensing remains disabled by default; no universal
+algorithm superiority, embedded memory/timing, or final project completion is
+claimed. See [the complete experiment record](docs/hazard-sensing.md).
