@@ -38,7 +38,10 @@ from ember.physical_team import (
     ground_mission_graph,
     place_collision_free_team,
     rebuild_physical_graph,
+    structural_pose_change_m,
 )
+from ember.regions import RegionRobotTeam
+from ember.routing import OracleCostConfig
 from ember.search import (
     CooperativeSearchResult,
     localize_and_assign,
@@ -383,6 +386,15 @@ class DemoResult:
     physical_arrival_radius_m: float = 0.4
     physical_deadline_interventions: int = 0
     modeled_deadline_infeasible_plans: int = 0
+    region_cells: int = 0
+    planning_nodes: int = 0
+    refinement_peak_nodes: int = 0
+    refinement_expansions: int = 0
+    discarded_region_factors: int = 0
+    provenance_dropped_factors: int = 0
+    robot_exposure_proxy: tuple[float, ...] = ()
+    robot_search_exposure_proxy: tuple[float, ...] = ()
+    robot_arrival_time_s: tuple[float | None, ...] = ()
 
     @property
     def arrived(self) -> int:
@@ -587,11 +599,14 @@ def run_demo(
     height: int = 700,
     live_disaster: bool = False,
     distributed_physical: bool = False,
+    region_cells: int = 0,
 ) -> DemoResult:
     if live_disaster and n_robots < 3:
         raise ValueError("live autonomous search requires at least three robots")
     if distributed_physical and not live_disaster:
         raise ValueError("distributed physical mode requires a live-disaster mission")
+    if region_cells < 0 or (region_cells and not distributed_physical):
+        raise ValueError("regional architecture requires distributed physical mode")
     if distributed_physical:
         params = collision_aware_params(params, RobotSpec())
     building = params.building
@@ -740,10 +755,11 @@ def run_demo(
     print(f"[cascade] swarm settled in {settle_steps} steps")
     start_positions = swarm.positions(data).copy()
     physical_team = (
-        PhysicalRobotTeam(
+        (RegionRobotTeam if region_cells else PhysicalRobotTeam)(
             graph,
             _trail_surface_positions(start_positions, swarm),
             loss_seed=int(stage_rng(seed, "radio_loss").integers(0, 2**63)),
+            **({"region_cells": region_cells} if region_cells else {}),
         )
         if distributed_physical
         else None
@@ -813,12 +829,21 @@ def run_demo(
     frames = 0
     thermal_failed: set[str] = set()
     routing_results: list[PhysicalRouteResult] = []
+    robot_exposure = np.zeros(len(swarm.members))
+    robot_search_exposure = np.zeros(len(swarm.members))
+    arrival_times = np.full(len(swarm.members), np.inf)
     collapse_routing_results: list[PhysicalRouteResult] = []
     routing_rng = stage_rng(seed, "hazard")
     search_rng = stage_rng(seed, "search")
     search_result: CooperativeSearchResult | None = None
     search_targets: list[np.ndarray | None] = [None] * len(swarm.members)
     pending_geometry_refresh_s: float | None = None
+    geometry_poses = settled_poses(model, data, structure, snap_to_authored=False)
+    geometry_radii = {
+        member.name: float(np.linalg.norm(member.half_extents))
+        for member in structure.members
+    }
+    last_geometry_refresh_s = -math.inf
     hazard_every = max(1, round(LIVE_HAZARD_DT_S / params.collapse.timestep_s))
     drive_limit = (
         round(LIVE_DISASTER_SECONDS / params.collapse.timestep_s)
@@ -847,6 +872,14 @@ def run_demo(
                 assert thermal_domain is not None
                 assert thermal_damage is not None
                 thermal_state = thermal_solver.step(thermal_state)
+                # Observer-only heat/smoke accumulation; never enters agent input.
+                sample_positions = swarm.positions(data) + np.array([0.0, 0.0, 0.3])
+                dose = _robot_exposure_rate(
+                    thermal_domain, thermal_state, sample_positions
+                ) * (hazard_every * params.collapse.timestep_s)
+                robot_exposure += dose
+                searching = np.array([m.status != "arrived" for m in swarm.members])
+                robot_search_exposure += dose * searching
                 elapsed_s = step * params.collapse.timestep_s
                 if not routing_results and elapsed_s >= LIVE_SEARCH_LOCALIZE_AT_S:
                     robot_positions = _trail_surface_positions(
@@ -981,6 +1014,25 @@ def run_demo(
                     and pending_geometry_refresh_s is None
                 ):
                     pending_geometry_refresh_s = elapsed_s + 1.5
+                # A failed member may still move after the first snapshot.
+                # Rebuild against the pose at which the map was actually made;
+                # comparing consecutive frames would miss accumulated drift.
+                if (
+                    physical_team is not None
+                    and collapse_routing_results
+                    and any(not member.driver.finished for member in swarm.members)
+                    and elapsed_s - last_geometry_refresh_s >= 2.0
+                ):
+                    current_poses = settled_poses(
+                        model, data, structure, snap_to_authored=False
+                    )
+                    if (
+                        structural_pose_change_m(
+                            geometry_poses, current_poses, geometry_radii
+                        )
+                        >= 0.5 * params.traversability.voxel_size_m
+                    ):
+                        pending_geometry_refresh_s = elapsed_s
                 if (
                     (
                         new_failed
@@ -991,8 +1043,12 @@ def run_demo(
                         )
                     )
                     and search_result is not None
-                    and not collapse_routing_results
+                    and (physical_team is not None or not collapse_routing_results)
                 ):
+                    if physical_team is not None:
+                        stage.collapse_replans = 0
+                        stage.collapse_retained = 0
+                        stage.retained_robot_names.clear()
                     stage.collapse_event_s = elapsed_s
                     stage.camera.reset()
                     replan_started = perf_counter()
@@ -1007,6 +1063,10 @@ def run_demo(
                             )
                         )
                         physical_team.replace_graph(graph)
+                        geometry_poses = settled_poses(
+                            model, data, structure, snap_to_authored=False
+                        )
+                        last_geometry_refresh_s = elapsed_s
                         stage.geometry_revisions = physical_team.geometry_revisions
                         stage.graph_positions = graph.world_positions()
                         physical_team.observe_and_exchange(
@@ -1080,8 +1140,9 @@ def run_demo(
                         collapse_routing_results.append(result)
                         stage.route_results[member.name] = result
                         stage.rejected_routes[member.name] = previous.copy()
+                        changed = False
                         if result.converged:
-                            swarm.reroute(
+                            changed = swarm.reroute(
                                 index,
                                 result.waypoints,
                                 goal_label=(
@@ -1089,10 +1150,15 @@ def run_demo(
                                     "· SAFE ROUTE"
                                 ),
                             )
-                            stage.collapse_replans += 1
+                            if changed:
+                                stage.collapse_replans += 1
+                            else:
+                                stage.collapse_retained += 1
+                                stage.retained_robot_names.add(member.name)
                         print(
                             f"[ember] {member.name} collapse response: "
-                            f"route replaced in {result.sweeps} sweeps"
+                            f"route {'replaced' if changed else 'retained'} "
+                            f"in {result.sweeps} sweeps"
                         )
                     stage.replan_latency_ms = 1000.0 * (perf_counter() - replan_started)
             swarm.step(model, data)
@@ -1101,6 +1167,13 @@ def run_demo(
                 _check_stable(model, data, strict=True)
             step += 1
             swarm.observe(data, building.storey_height_m)
+            for index, member in enumerate(swarm.members):
+                if (
+                    routing_results
+                    and member.status == "arrived"
+                    and not np.isfinite(arrival_times[index])
+                ):
+                    arrival_times[index] = step * params.collapse.timestep_s
 
             if renderer is None or writer is None:
                 continue
@@ -1238,10 +1311,51 @@ def run_demo(
         numeric_arena_high_water_bytes=physical_team.arena_high_water_bytes
         if physical_team
         else 0,
+        region_cells=region_cells,
+        planning_nodes=physical_team.graph.n_nodes if physical_team else graph.n_nodes,
+        refinement_peak_nodes=getattr(physical_team, "refinement_peak_nodes", 0),
+        refinement_expansions=getattr(physical_team, "refinement_expansions", 0),
+        discarded_region_factors=getattr(physical_team, "discarded_region_factors", 0),
+        provenance_dropped_factors=sum(r.dropped_factors for r in physical_team.robots)
+        if physical_team
+        else 0,
+        robot_exposure_proxy=tuple(float(value) for value in robot_exposure),
+        robot_search_exposure_proxy=tuple(
+            float(value) for value in robot_search_exposure
+        ),
+        robot_arrival_time_s=tuple(
+            float(value) if np.isfinite(value) else None for value in arrival_times
+        ),
         analytical_deadline_misses=sum(r.deadline_misses for r in physical_team.robots)
         if physical_team
         else 0,
     )
+
+
+def _robot_exposure_rate(domain, state, positions):
+    """Uncalibrated observer heat/smoke rate, excluding base step cost."""
+    cfg = OracleCostConfig()
+    positions = np.asarray(positions, dtype=float)
+    if positions.ndim != 2 or positions.shape[1] != 3:
+        raise ValueError("exposure positions must have shape (N, 3)")
+    if not np.all(np.isfinite(positions)):
+        raise ValueError("exposure positions must be finite")
+    inside = np.all(
+        (positions >= np.asarray(domain.origin_m))
+        & (positions < np.asarray(domain.bounds_max_m)),
+        axis=1,
+    )
+    # The present PDE has no outdoor field; outside-domain dose is modeled as zero.
+    rate = np.zeros(len(positions))
+    temperature = state.sample_many(domain, positions[inside], "temperature")
+    smoke = state.sample_many(domain, positions[inside], "smoke")
+    rate[inside] = (
+        cfg.heat_weight
+        * np.maximum(temperature - cfg.heat_onset_k, 0)
+        / cfg.heat_scale_k
+        + cfg.smoke_weight * smoke / cfg.smoke_scale_kg_m3
+    )
+    return rate
 
 
 def _check_stable(model: mujoco.MjModel, data: mujoco.MjData, *, strict=False) -> None:
@@ -2051,6 +2165,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cascade.demo", description=__doc__)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument(
+        "--region-cells",
+        type=int,
+        default=0,
+        help="experimental connected regions per horizontal voxel axis; "
+        "0 keeps the flat architecture; requires --distributed",
+    )
+    parser.add_argument(
         "--distributed",
         action="store_true",
         help="use persistent robot GBP, geometry-aware radio "
@@ -2092,6 +2213,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.distributed and not args.live_disaster:
         parser.error("--distributed requires --live-disaster")
 
+    if args.region_cells < 0 or (args.region_cells and not args.distributed):
+        parser.error("--region-cells must be nonnegative and requires --distributed")
     params = compact_demo_params() if args.compact else CascadeParams()
     if args.distributed:
         params = collision_aware_params(params, RobotSpec())
@@ -2118,6 +2241,7 @@ def main(argv: list[str] | None = None) -> int:
         height=(865 if args.compact else 700) if args.height is None else args.height,
         live_disaster=args.live_disaster,
         distributed_physical=args.distributed,
+        region_cells=args.region_cells,
     )
     print(result.report())
     report_path = args.report or (
@@ -2156,6 +2280,8 @@ def main(argv: list[str] | None = None) -> int:
                     "embedded_timing_calibrated": False,
                     "whole_phase1_acceptance_gate_met": False,
                     "native_host_integer_routing": args.distributed,
+                    "whole_embedded_memory_gate_met": False,
+                    "host_fine_geometry_refinement": bool(args.region_cells),
                 },
                 indent=2,
             )

@@ -484,3 +484,30 @@ and from 1,230,276 to 891,588 bytes (seed 42), reductions of 27.7% and 27.5%.
 Allocated arena capacity also falls by about 30%. The 200 KiB gate remains unmet,
 and host graph, scratch, packet/provenance metadata and interpreter memory remain
 additional. See [the tracked evidence and reproduction commands](docs/compact-topology.md).
+
+
+## Connected-region architecture checkpoint — 2026-10-04
+
+An opt-in two-level planner (`--region-cells 4`) contracts connected fine cells
+for private GBP and native integer routing, then refines certified terrain-aware
+corridors using each robot's direct fine readings. The flat planner remains the
+default. Live distributed missions now refresh geometry after further material
+rubble motion; bounded provenance rejection preserves duplicate history and
+reports dropped observation attempts instead of aborting repeated sensing.
+
+All 501 tests and runtime Ruff pass. Final paired development runs reach 4/4 sites
+(seed 7) and 8/8 (seeds 19 and 42) with both planners. Compact numeric peaks are
+130,952–150,272 bytes, 83.3–86.9% below flat controls. Full-mission exposure improves
+in seed 7 but rises slightly in the other two; compact routes finish later.
+Radio gains are mixed, and repeated refresh increases traffic over the earlier
+one-snapshot protocol. These are three development layouts with one replicate
+each, not statistical superiority evidence.
+
+See [the tracked experiment report](docs/architecture-experiments.md) for rejected
+versions, paired dose/time/traffic measurements, provenance hashes, reproduction
+commands and the reviewed 4/4 clip. The whole embedded RAM gate remains false:
+fine geometry, certificate construction/refinement scratch, packet metadata and
+Python runtime lie outside the numeric arena. Coupled localization and hazard
+geometry, deployed sensors, calibrated tenability, learned acceleration, measured
+firmware timing and physical patient evacuation remain unfinished. No new
+whole-project completion percentage is claimed.

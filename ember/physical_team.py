@@ -240,7 +240,16 @@ class PhysicalRobotTeam:
         capacity = max(
             200 * 1024, gbp_storage_bytes(nodes, edges) + routing_bytes + 1024
         )
-        return RobotState(robot_id, self.graph, position, arena=MCUArena(capacity))
+        return RobotState(
+            robot_id,
+            self.graph,
+            position,
+            arena=MCUArena(capacity),
+            drop_on_factor_overflow=True,
+        )
+
+    def _scan(self, domain, state, position, rng, *, robot=None, **kwargs):
+        return scan_physical_hazard(self.graph, domain, state, position, rng, **kwargs)
 
     def observe_and_exchange(
         self,
@@ -277,12 +286,12 @@ class PhysicalRobotTeam:
             robot.position_m[:] = position
             robot.consume()
             prior = robot.engine.belief()
-            scan = scan_physical_hazard(
-                self.graph,
+            scan = self._scan(
                 domain,
                 state,
                 position,
                 rng,
+                robot=robot,
                 scan_radius_m=scan_radius_m,
                 sensor_config=sensor_config,
                 scene_model=model,
@@ -385,6 +394,8 @@ class PhysicalRobotTeam:
         *,
         beta=-2.0,
         available_time_s=None,
+        travel_edge_lengths_m=None,
+        risk_floor=None,
     ):
         result = plan_belief_route(
             self.graph,
@@ -400,6 +411,8 @@ class PhysicalRobotTeam:
             infer_belief=False,
             native_routing=True,
             available_time_s=available_time_s,
+            travel_edge_lengths_m=travel_edge_lengths_m,
+            risk_floor=risk_floor,
             beta=beta,
         )
         self.arena_high_water_bytes = max(
@@ -454,6 +467,7 @@ class PhysicalRobotTeam:
             }
             self.preserved_factors += len(new.seen_factors)
             new.next_sequence = old.next_sequence
+            new.dropped_factors = old.dropped_factors
             new.sensor_state.update(old.sensor_state)
             new.deadline_misses = old.deadline_misses
             new.inference_sweeps = old.inference_sweeps
@@ -463,3 +477,23 @@ class PhysicalRobotTeam:
         self.geometry_revisions += 1
         self.scans = ()
         return mapping
+
+
+def structural_pose_change_m(previous, current, radii):
+    """Conservative maximum corner displacement since the last map snapshot.
+
+    Geometry comes from the same host pose observer as rasterization. This is
+    map invalidation, not a deployed range sensor or hazard-truth input.
+    """
+    if previous.keys() != current.keys():
+        return float("inf")
+    maximum = 0.0
+    for name, (position, quaternion) in current.items():
+        old_position, old_quaternion = previous[name]
+        translation = float(np.linalg.norm(np.asarray(position) - old_position))
+        # q and -q describe the same orientation. For relative angle theta,
+        # 2*r*sin(theta/2) bounds how far any box corner can move.
+        cosine = min(1.0, abs(float(np.dot(quaternion, old_quaternion))))
+        rotation = 2.0 * radii[name] * np.sqrt(max(0.0, 1.0 - cosine * cosine))
+        maximum = max(maximum, translation + rotation)
+    return maximum

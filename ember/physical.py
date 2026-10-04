@@ -153,6 +153,8 @@ def plan_belief_route(
     available_time_s: float | None = None,
     planning_speed_m_s: float = 0.30,
     planning_dt_s: float = 0.25,
+    travel_edge_lengths_m: np.ndarray | None = None,
+    risk_floor: np.ndarray | None = None,
 ) -> PhysicalRouteResult:
     """Scan locally, update a Gaussian belief, and solve a new LMDP route."""
 
@@ -215,6 +217,13 @@ def plan_belief_route(
             )
         belief = robot_state.engine.belief()
     state_cost = belief.routing_cost(beta)
+    if risk_floor is not None:
+        floor = np.asarray(risk_floor, dtype=float)
+        if floor.shape != state_cost.shape or not np.all(np.isfinite(floor)):
+            raise ValueError("risk floor must be finite with one value per node")
+        if np.any(floor < 0):
+            raise ValueError("risk floor must be nonnegative")
+        state_cost = np.maximum(state_cost, floor)
 
     start_node = nearest_node(graph, tuple(start))
     goal_node = nearest_node(graph, tuple(goal))
@@ -265,6 +274,13 @@ def plan_belief_route(
             positions[graph.edges[:, 0]] - positions[graph.edges[:, 1]],
             axis=1,
         )
+        if travel_edge_lengths_m is not None:
+            distances = np.asarray(travel_edge_lengths_m, dtype=float)
+            if (
+                distances.shape != (graph.n_edges,)
+                or not np.all(np.isfinite(distances)) or np.any(distances <= 0)
+            ):
+                raise ValueError("travel edge lengths must be finite and positive")
         metric_graph = replace(graph, edge_cost=distances)
         constrained = safeguard_route_deadline(
             metric_graph,
