@@ -511,3 +511,27 @@ Python runtime lie outside the numeric arena. Coupled localization and hazard
 geometry, deployed sensors, calibrated tenability, learned acceleration, measured
 firmware timing and physical patient evacuation remain unfinished. No new
 whole-project completion percentage is claimed.
+
+
+## Bounded latest-reading inference — 2026-10-04
+
+The opt-in `--latest-evidence` mode replaces each source/cell's old canonical
+likelihood instead of retaining every observation epoch. Per-cell sequence
+watermarks reject equal and older packets; aging scales both the aggregate and
+retained likelihoods before geometry transfer. This is a different statistical
+model for a changing field, not exact equivalence to cumulative independent
+observations. The default stays accumulation.
+
+All 509 tests and runtime Ruff pass. Ten fresh physical runs on development seeds
+7, 19 and 42 pass. In the saturated flat layouts, rejected factor attempts fall
+from 20,702 and 4,065 to zero. Regional trajectories/exposure remain unchanged
+across three pairs, with numeric peaks of 167,816–187,136 bytes including the
+new arena-backed likelihood ledger. Flat exposure increases slightly, and arrival
+time changes are mixed; this is continued-sensing evidence, not a survival win.
+
+See [the tracked streaming report](docs/streaming-evidence.md) for the paired
+metrics, semantics, replay/aging tests, source hashes and reproduction command.
+The source/cell index and identity metadata remain host-side; the whole embedded
+RAM and timing gates remain false. Unique source/cell keys can still saturate the
+table, and topology-epoch delivery, coupled temporal/range factors, real sensors
+and calibrated tenability remain open. No new completion percentage is claimed.

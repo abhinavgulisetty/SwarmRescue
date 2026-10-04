@@ -105,3 +105,34 @@ def test_latest_storage_is_arena_backed_and_charged_to_numeric_peak():
     assert np.shares_memory(storage, robot.evidence_sequences)
     base = RobotState(0, _graph(), np.zeros(3), factor_capacity=9)
     assert robot.arena.used - base.arena.used == 18 * 9
+
+
+@pytest.mark.parametrize("regional", (False, True))
+def test_physical_rebuild_preserves_latest_state_and_accepts_fresh_reading(regional):
+    from ember.physical_team import PhysicalRobotTeam
+    from ember.regions import RegionRobotTeam
+
+    graph = _graph()
+    cls = RegionRobotTeam if regional else PhysicalRobotTeam
+    team = cls(
+        graph,
+        graph.world_positions()[[0, 2]],
+        loss_seed=1,
+        latest_evidence=True,
+        **({"region_cells": 1} if regional else {}),
+    )
+    robot = team.robots[0]
+    robot.observe(np.array([0]), np.array([2.0]), np.array([0.25]))
+    robot.consume()
+    robot.observe(np.array([0]), np.array([3.0]), np.array([0.25]))
+    robot.consume()
+    team.replace_graph(graph, process_variance=0.2)
+    current = team.robots[0]
+    assert current.latest_evidence and current.replaced_factors == 1
+    current.enqueue(packet(0, 0, 99))
+    assert current.consume() == 0
+    current.observe(np.array([0]), np.array([4.0]), np.array([0.25]))
+    assert current.consume() == 1
+    ratio = 1 / (1 + 0.2 * 29)
+    assert current.engine.local_precision[0] == pytest.approx(25 * ratio + 4)
+    assert current.engine.local_information[0] == pytest.approx(7.5 * ratio + 16)

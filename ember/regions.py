@@ -315,6 +315,7 @@ class RegionRobotTeam(PhysicalRobotTeam):
             + 9 * self.regions.fine.n_nodes
             + 16
             + 1024
+            + (18 * 2048 if self.latest_evidence else 0)
         )
         if capacity >= 200 * 1024:
             raise MCUOutOfMemory("regional numeric workspace exceeds 200 KiB")
@@ -325,6 +326,7 @@ class RegionRobotTeam(PhysicalRobotTeam):
             arena=MCUArena(capacity),
             factor_capacity=2048,
             drop_on_factor_overflow=True,
+            latest_evidence=self.latest_evidence,
             queue_capacity=64,
             fine_node_count=self.regions.fine.n_nodes,
         )

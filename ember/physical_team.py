@@ -215,11 +215,13 @@ class PhysicalRobotTeam:
         loss_seed,
         packet_budget_bytes=128,
         radio_config=None,
+        latest_evidence=False,
     ):
         positions = np.asarray(positions_m, dtype=float)
         if positions.ndim != 2 or positions.shape[1] != 3 or len(positions) < 2:
             raise ValueError("physical team requires at least two 3D positions")
         self.graph = graph
+        self.latest_evidence = latest_evidence
         self.packet_budget_bytes = packet_budget_bytes
         self.radio = RadioMedium(positions, loss_seed=loss_seed, config=radio_config)
         self.robots = tuple(
@@ -238,7 +240,11 @@ class PhysicalRobotTeam:
         # build_lmdp has at most two transitions per edge plus one per node.
         routing_bytes = 18 * nodes + 8 * (2 * edges + nodes) + 12
         capacity = max(
-            200 * 1024, gbp_storage_bytes(nodes, edges) + routing_bytes + 1024
+            200 * 1024,
+            gbp_storage_bytes(nodes, edges)
+            + routing_bytes
+            + 1024
+            + (18 * 8192 if self.latest_evidence else 0),
         )
         return RobotState(
             robot_id,
@@ -246,6 +252,7 @@ class PhysicalRobotTeam:
             position,
             arena=MCUArena(capacity),
             drop_on_factor_overflow=True,
+            latest_evidence=self.latest_evidence,
         )
 
     def _scan(self, domain, state, position, rng, *, robot=None, **kwargs):
@@ -317,7 +324,11 @@ class PhysicalRobotTeam:
             adjoint = solve_adjoint_sparse(route_model, source)
             if not adjoint.converged:
                 raise RuntimeError("physical communication adjoint did not converge")
-            posterior = prior.update(scan.nodes, scan.mean, scan.variance)
+            posterior = (
+                robot.engine.belief()
+                if self.latest_evidence
+                else prior.update(scan.nodes, scan.mean, scan.variance)
+            )
             kl = gaussian_kl(
                 prior.mean[scan.nodes],
                 prior.variance[scan.nodes],
@@ -453,7 +464,7 @@ class PhysicalRobotTeam:
         new_indices = np.array(list(mapping.values()), dtype=int)
         for old, new in zip(old_robots, self.robots, strict=True):
             old.consume()
-            old.engine.age(old_indices, process_variance)
+            old.age_evidence(old_indices, process_variance)
             new.engine.local_precision[new_indices] = old.engine.local_precision[
                 old_indices
             ]
@@ -465,6 +476,7 @@ class PhysicalRobotTeam:
                 for sender, sequence, cell in old.seen_factors
                 if cell in mapping
             }
+            new.transfer_evidence(old, mapping)
             self.preserved_factors += len(new.seen_factors)
             new.next_sequence = old.next_sequence
             new.dropped_factors = old.dropped_factors

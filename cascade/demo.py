@@ -392,6 +392,9 @@ class DemoResult:
     refinement_expansions: int = 0
     discarded_region_factors: int = 0
     provenance_dropped_factors: int = 0
+    latest_source_cell_evidence: bool = False
+    replaced_source_cell_factors: int = 0
+    stale_source_cell_factors: int = 0
     robot_exposure_proxy: tuple[float, ...] = ()
     robot_search_exposure_proxy: tuple[float, ...] = ()
     robot_arrival_time_s: tuple[float | None, ...] = ()
@@ -600,6 +603,7 @@ def run_demo(
     live_disaster: bool = False,
     distributed_physical: bool = False,
     region_cells: int = 0,
+    latest_evidence: bool = False,
 ) -> DemoResult:
     if live_disaster and n_robots < 3:
         raise ValueError("live autonomous search requires at least three robots")
@@ -607,6 +611,8 @@ def run_demo(
         raise ValueError("distributed physical mode requires a live-disaster mission")
     if region_cells < 0 or (region_cells and not distributed_physical):
         raise ValueError("regional architecture requires distributed physical mode")
+    if latest_evidence and not distributed_physical:
+        raise ValueError("latest evidence requires distributed physical mode")
     if distributed_physical:
         params = collision_aware_params(params, RobotSpec())
     building = params.building
@@ -759,6 +765,7 @@ def run_demo(
             graph,
             _trail_surface_positions(start_positions, swarm),
             loss_seed=int(stage_rng(seed, "radio_loss").integers(0, 2**63)),
+            latest_evidence=latest_evidence,
             **({"region_cells": region_cells} if region_cells else {}),
         )
         if distributed_physical
@@ -1309,6 +1316,15 @@ def run_demo(
         if physical_team
         else 0,
         numeric_arena_high_water_bytes=physical_team.arena_high_water_bytes
+        if physical_team
+        else 0,
+        latest_source_cell_evidence=latest_evidence,
+        replaced_source_cell_factors=sum(
+            r.replaced_factors for r in physical_team.robots
+        )
+        if physical_team
+        else 0,
+        stale_source_cell_factors=sum(r.stale_factors for r in physical_team.robots)
         if physical_team
         else 0,
         region_cells=region_cells,
@@ -2165,6 +2181,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cascade.demo", description=__doc__)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument(
+        "--latest-evidence",
+        action="store_true",
+        help="experimental replacement of each source/cell's old reading; "
+        "requires --distributed",
+    )
+    parser.add_argument(
         "--region-cells",
         type=int,
         default=0,
@@ -2213,6 +2235,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.distributed and not args.live_disaster:
         parser.error("--distributed requires --live-disaster")
 
+    if args.latest_evidence and not args.distributed:
+        parser.error("--latest-evidence requires --distributed")
     if args.region_cells < 0 or (args.region_cells and not args.distributed):
         parser.error("--region-cells must be nonnegative and requires --distributed")
     params = compact_demo_params() if args.compact else CascadeParams()
@@ -2242,6 +2266,7 @@ def main(argv: list[str] | None = None) -> int:
         live_disaster=args.live_disaster,
         distributed_physical=args.distributed,
         region_cells=args.region_cells,
+        latest_evidence=args.latest_evidence,
     )
     print(result.report())
     report_path = args.report or (
