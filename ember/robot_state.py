@@ -29,6 +29,12 @@ class RobotState:
     factor_capacity: int = 8192
     cycles_per_tick: int = 2_400_000
     drop_on_factor_overflow: bool = False
+    latest_evidence: bool = False
+    replaced_factors: int = field(default=0, init=False)
+    stale_factors: int = field(default=0, init=False)
+    evidence_slots: dict[tuple[int, int], int] = field(default_factory=dict, init=False)
+    evidence_values: np.ndarray | None = field(default=None, init=False)
+    evidence_sequences: np.ndarray | None = field(default=None, init=False)
     dropped_factors: int = field(default=0, init=False)
     engine: GaussianBeliefPropagation = field(init=False)
     queue: deque[GaussianPacket] = field(default_factory=deque, init=False)
@@ -70,6 +76,14 @@ class RobotState:
             )
             buffer[:] = source
             setattr(self.engine, name, buffer)
+        if self.latest_evidence:
+            self.evidence_values = np.frombuffer(
+                self.arena.alloc(16 * self.factor_capacity, alignment=8),
+                dtype=np.float64,
+            ).reshape(self.factor_capacity, 2)
+            self.evidence_sequences = np.frombuffer(
+                self.arena.alloc(2 * self.factor_capacity, alignment=2), dtype=np.uint16
+            )
         self._routing_offset = self.arena.used
 
     def enqueue(self, packet: GaussianPacket) -> None:
@@ -97,6 +111,8 @@ class RobotState:
 
     def consume(self) -> int:
         """Fuse source/sequence/cell factors once, including relayed duplicates."""
+        if self.latest_evidence:
+            return self._consume_latest()
         accepted = 0
         while self.queue:
             packet = self.queue[0]
@@ -126,6 +142,93 @@ class RobotState:
             self.seen_factors.update(keys)
             accepted += len(indices)
         return accepted
+
+    def _consume_latest(self) -> int:
+        """Replace a source's current factor; sequence numbers never wrap here.
+
+        This is a dynamic latest-reading model, not cumulative independent
+        likelihoods. A source/cell slot persists to reject old and equal epochs.
+        """
+        accepted = 0
+        while self.queue:
+            packet = self.queue[0]
+            candidates = []
+            seen_cells = set()
+            for index, cell in enumerate(packet.cells):
+                cell = int(cell)
+                if cell in seen_cells:
+                    continue
+                seen_cells.add(cell)
+                key = (packet.sender, cell)
+                slot = self.evidence_slots.get(key)
+                if (
+                    slot is not None
+                    and packet.sequence <= self.evidence_sequences[slot]
+                ):
+                    continue
+                candidates.append((index, cell, key, slot))
+            additions = sum(slot is None for _, _, _, slot in candidates)
+            if len(self.evidence_slots) + additions > self.factor_capacity:
+                if not self.drop_on_factor_overflow:
+                    raise BufferError("robot factor provenance capacity exceeded")
+                self.queue.popleft()
+                self.dropped_factors += len(candidates)
+                continue
+            self.queue.popleft()
+            self.stale_factors += len(seen_cells) - len(candidates)
+            for index, cell, key, slot in candidates:
+                info = float(packet.information_q16[index]) / Q16_SCALE
+                precision = float(packet.precision_q16[index]) / Q16_SCALE
+                old_info, old_precision = 0.0, 0.0
+                if slot is None:
+                    slot = len(self.evidence_slots)
+                    self.evidence_slots[key] = slot
+                else:
+                    old_info, old_precision = self.evidence_values[slot]
+                    self.seen_factors.remove(
+                        (packet.sender, int(self.evidence_sequences[slot]), cell)
+                    )
+                    self.replaced_factors += 1
+                self.engine.local_information[cell] += info - old_info
+                self.engine.local_precision[cell] += precision - old_precision
+                self.evidence_values[slot] = (info, precision)
+                self.evidence_sequences[slot] = packet.sequence
+                self.seen_factors.add((packet.sender, packet.sequence, cell))
+                accepted += 1
+        return accepted
+
+    def age_evidence(self, cells, process_variance) -> None:
+        """Age the aggregate and each retained contribution by the same ratio."""
+        indices = np.asarray(cells)
+        before = self.engine.local_precision[indices].copy()
+        self.engine.age(indices, process_variance)
+        if self.latest_evidence:
+            ratios = dict(
+                zip(indices, self.engine.local_precision[indices] / before, strict=True)
+            )
+            for (_, cell), slot in self.evidence_slots.items():
+                if cell in ratios:
+                    self.evidence_values[slot] *= ratios[cell]
+
+    def transfer_evidence(self, previous, mapping) -> None:
+        """Transfer retained factors only; callers transfer aggregate buffers."""
+        if self.latest_evidence != previous.latest_evidence:
+            raise ValueError("geometry transfer cannot change evidence policy")
+        if not self.latest_evidence:
+            return
+        for (sender, cell), old_slot in previous.evidence_slots.items():
+            sequence = int(previous.evidence_sequences[old_slot])
+            if (
+                cell not in mapping
+                or (sender, sequence, cell) not in previous.seen_factors
+            ):
+                continue
+            slot = len(self.evidence_slots)
+            self.evidence_slots[(sender, mapping[cell])] = slot
+            self.evidence_sequences[slot] = sequence
+            self.evidence_values[slot] = previous.evidence_values[old_slot]
+        self.replaced_factors = previous.replaced_factors
+        self.stale_factors = previous.stale_factors
 
     def tick(self, active_messages: np.ndarray | None = None) -> bool:
         """One local sweep; cycle costs are analytical, not MCU calibration."""
