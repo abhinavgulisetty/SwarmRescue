@@ -359,7 +359,7 @@ class WaypointDriver:
             self.stalled = True
             self._state = RobotState.UNROUTABLE
 
-    def reroute(self, waypoints: np.ndarray) -> None:
+    def reroute(self, waypoints: np.ndarray) -> bool:
         """Replace the active route and restart projection from its first point."""
 
         route = np.asarray(waypoints, dtype=np.float64)
@@ -367,6 +367,30 @@ class WaypointDriver:
             raise ValueError("a replacement route must have shape (N, 3), N > 0")
         if not np.all(np.isfinite(route)):
             raise ValueError("a replacement route must be finite")
+        if not self.finished and not self.stalled:
+            remaining = self.waypoints[self.index:]
+            extra = len(route) - len(remaining)
+            if extra in (0, 1) and np.array_equal(route[extra:], remaining):
+                if extra == 0:
+                    return False
+                # A planner often prepends the measured current pose. If that
+                # prefix is on the existing incoming segment, the physical path
+                # did not change: preserve projection, recovery and progress.
+                end = self.waypoints[self.index]
+                start = self.waypoints[max(0, self.index - 1)]
+                span = end - start
+                length_sq = float(span @ span)
+                projection = 0.0 if length_sq == 0 else float(
+                    (route[0] - start) @ span / length_sq
+                )
+                nearest = start + np.clip(projection, 0.0, 1.0) * span
+                if (
+                    0.0 <= projection <= 1.0
+                    and np.linalg.norm(route[0, :2] - nearest[:2])
+                    <= self.corner_tolerance_m
+                    and abs(route[0, 2] - nearest[2]) <= self.arrive_radius_m
+                ):
+                    return False
         self.waypoints = np.array(route, copy=True)
         self.index = 0
         self.stalled = False
@@ -379,6 +403,8 @@ class WaypointDriver:
             if self._steps <= self.start_delay_steps
             else RobotState.DRIVING
         )
+
+        return True
 
     @property
     def finished(self) -> bool:

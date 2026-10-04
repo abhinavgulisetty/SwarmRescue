@@ -586,13 +586,13 @@ class Swarm:
         waypoints: np.ndarray,
         *,
         goal_label: str | None = None,
-    ) -> None:
+    ) -> bool:
         """Install one robot's new route in control and presentation state."""
 
         if not 0 <= index < len(self.members):
             raise IndexError("swarm member index is out of range")
         member = self.members[index]
-        member.driver.reroute(waypoints)
+        changed = member.driver.reroute(waypoints)
         member.assignment = dataclasses.replace(
             member.assignment,
             route=np.array(member.driver.waypoints, copy=True),
@@ -600,6 +600,7 @@ class Swarm:
                 member.assignment.goal_label if goal_label is None else goal_label
             ),
         )
+        return changed
 
     def observe(self, data: mujoco.MjData, storey_height_m: float) -> None:
         """Record the storey each robot is on, from its own trajectory."""

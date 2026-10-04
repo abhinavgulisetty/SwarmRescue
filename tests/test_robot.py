@@ -336,3 +336,39 @@ def test_reroute_reopens_a_driver_and_resets_projection() -> None:
     assert driver.index == 0
     assert not driver.stalled
     assert driver.state is RobotState.WAITING
+
+
+def test_identical_remaining_route_with_on_segment_pose_preserves_control_state():
+    spec = RobotSpec(name="probe")
+    route = np.array(
+        [
+            [11.125, 6.875, 0.0],
+            [11.125, 7.125, 0.0],
+            [11.375, 7.125, 0.0],
+            [12.375, 7.125, 0.0],
+        ]
+    )
+    driver = WaypointDriver(spec=spec, waypoints=route, index=1)
+    driver._best_index = 1
+    driver._since_progress = 27
+    driver._recovery_left = 4
+    original_buffer = driver.waypoints
+    current_pose = np.array([11.1741063, 7.0288741, 0.01278395])
+    assert driver.reroute(np.vstack((current_pose, route[1:]))) is False
+    assert driver.waypoints is original_buffer and driver.index == 1
+    assert driver._best_index == 1 and driver._since_progress == 27
+    assert driver._recovery_left == 4
+    assert driver.reroute(route[1:]) is False
+
+
+def test_off_segment_prefix_or_changed_path_restarts_controller():
+    spec = RobotSpec(name="probe")
+    route = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0]])
+    driver = WaypointDriver(spec=spec, waypoints=route, index=1)
+    driver._since_progress = 27
+    replacement = np.vstack(([5.0, 5.0, 0.0], route[1:]))
+    assert driver.reroute(replacement) is True
+    assert driver.index == 0 and driver._since_progress == 0
+    np.testing.assert_array_equal(driver.waypoints, replacement)
+    replacement[-1] = [1.0, 2.0, 0.0]
+    assert driver.reroute(replacement) is True
