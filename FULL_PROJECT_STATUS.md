@@ -1,9 +1,10 @@
 # EMBER Whole-Project Status
 
-**Audit date:** 2026-09-29
-**Current whole-project completion:** **76%**
-**Target:** 75%
-**Status:** **target reached; project remains incomplete**
+**Historical percentage audit date:** 2026-09-29
+**Latest acceptance audit:** 2026-10-04
+**Historical weighted checkpoint:** **76%**
+**Previous checkpoint target:** 75%
+**Current status:** **project remains incomplete; see [current gates](COMPLETION_GATES.md)**
 
 This is the controlling completion report. `CHECKPOINT_75.md` measures readiness of
 the academic review package; it is not a claim that 75% of the research system is
@@ -423,3 +424,17 @@ comparisons reach all sites, but arrival/exposure gains are mixed, so the old
 localizer remains the default. Range-factor transport, pose/hazard coupling,
 real sensor calibration, whole embedded RAM/timing and evacuation remain open.
 See [the localization report](docs/range-localization.md).
+
+## Freestanding Cortex-M4 execution checkpoint
+
+The existing C routing/deadline kernels now execute under Cortex-M4 QEMU with
+freestanding startup, no libc dependency and independent Python fixtures.
+All 592 tests and runtime Ruff pass. Native and ARM grids each pass 13,610 checks
+across 202 routing and 600 deadline cases. The kernel/harness reserves 32,176
+bytes including its stack and observes 272 bytes of stack use during replay;
+these are not whole-robot RAM or worst-case hardware-cycle measurements.
+
+See [the emulator report](docs/firmware-emulation.md). Kernel emulator execution
+is closed; whole firmware, measured deadlines/resources, sensor calibration,
+range transport, pose/hazard coupling, NCA speed and physical evacuation remain
+open in [the current acceptance ledger](COMPLETION_GATES.md).

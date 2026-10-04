@@ -1,7 +1,6 @@
 #include "deadline.h"
 #include <limits.h>
 #include <stddef.h>
-#include <string.h>
 
 static void fast_route(int32_t goal, int32_t n, const int32_t *previous,
     int32_t *route, ember_deadline_result *result) {
@@ -35,7 +34,13 @@ int ember_deadline_route(
         if (columns[edge] < 0 || columns[edge] >= n || edge_steps[edge] < 1
             || edge_cost_q16[edge] < 1) return -3;
     }
-    memset(result, 0, sizeof(*result));
+    result->travel_steps = 0;
+    result->route_length = 0;
+    result->objective_q16 = 0;
+    result->feasible = 0;
+    result->optimal = 0;
+    result->resource_fallback = 0;
+    result->labels_used = 0;
     for (state = 0; state < n; ++state) {
         fast_time[state] = INT32_MAX; fast_cost[state] = INT64_MAX;
         fast_previous[state] = -1; visited[state] = 0;

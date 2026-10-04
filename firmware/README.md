@@ -36,3 +36,13 @@ alternatives are not discarded merely because another path has lower risk.
 `tests/test_firmware_deadline.py` checks randomized native/reference route,
 objective, feasibility, label-cap and proposal-certificate equivalence. Timing
 and whole-robot RAM calibration remain separate gates.
+
+## Cortex-M4 emulator replay
+
+The freestanding replay target is now implemented in `replay/`, with a Cortex-M4
+startup, semihosting results, bounded linker layout and stack canary. The native
+and QEMU development grids each pass 13,610 checks across 202 routing and 600
+deadline cases. Run `python -m eval.firmware_replay --arm` with ARM GCC/QEMU on
+PATH or a `--tool-root`. See [the emulator report](../docs/firmware-emulation.md).
+This closes kernel emulator execution; the earlier pending-emulator statements
+above are historical. Whole robot firmware, RAM and measured timing remain open.

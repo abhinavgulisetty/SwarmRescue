@@ -582,3 +582,11 @@ comparisons reach all sites, but arrival/exposure gains are mixed, so the old
 localizer remains the default. Range-factor transport, pose/hazard coupling,
 real sensor calibration, whole embedded RAM/timing and evacuation remain open.
 See [the localization report](docs/range-localization.md).
+
+## Freestanding firmware emulator checkpoint
+
+Cortex-M4 QEMU replay now passes 13,610 integer-reference checks across 202
+routing and 600 deadline cases. The replay reserves 32,176 bytes including its
+stack; this is a kernel/harness measurement, not whole-robot RAM. All 592 tests
+and runtime Ruff pass. See [firmware emulation](docs/firmware-emulation.md) and
+[the current completion gates](COMPLETION_GATES.md) for what remains unfinished.
