@@ -28,6 +28,8 @@ class RobotState:
     queue_capacity: int = 256
     factor_capacity: int = 8192
     cycles_per_tick: int = 2_400_000
+    drop_on_factor_overflow: bool = False
+    dropped_factors: int = field(default=0, init=False)
     engine: GaussianBeliefPropagation = field(init=False)
     queue: deque[GaussianPacket] = field(default_factory=deque, init=False)
     seen_factors: set[tuple[int, int, int]] = field(default_factory=set, init=False)
@@ -106,7 +108,13 @@ class RobotState:
                     indices.append(index)
                     keys.add(key)
             if len(self.seen_factors) + len(keys) > self.factor_capacity:
-                raise BufferError("robot factor provenance capacity exceeded")
+                if not self.drop_on_factor_overflow:
+                    raise BufferError("robot factor provenance capacity exceeded")
+                # Reject the entire new packet. Never forget accepted IDs: doing
+                # so would allow delayed duplicates to be fused twice.
+                self.queue.popleft()
+                self.dropped_factors += len(keys)
+                continue
             self.queue.popleft()
             if not indices:
                 continue
