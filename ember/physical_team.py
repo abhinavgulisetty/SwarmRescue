@@ -24,7 +24,7 @@ from cascade.extract import (
 )
 from cascade.mjcf import settled_poses, to_settled_mjcf
 from cascade.robot import build_robot, place_robot
-from ember.comms import PACKET_HEADER_BYTES, UPDATE_BYTES, GaussianPacket
+from ember.comms import MAX_MAP_EPOCH, UPDATE_BYTES, GaussianPacket
 from ember.gbp import gbp_storage_bytes
 from ember.geometry_sensing import radio_wall_counts
 from ember.physical import plan_belief_route, scan_physical_hazard
@@ -184,7 +184,7 @@ def select_source_packets(packets, cells, scores, budget_bytes):
     selected = {}
     used = 0
     for negative_score, _, index, offset in choices:
-        extra = UPDATE_BYTES + (0 if index in selected else PACKET_HEADER_BYTES)
+        extra = UPDATE_BYTES + (0 if index in selected else packets[index].header_bytes)
         if negative_score >= 0 or used + extra > budget_bytes:
             continue
         selected.setdefault(index, []).append(offset)
@@ -198,6 +198,7 @@ def select_source_packets(packets, cells, scores, budget_bytes):
             packet.cells[selected[index]],
             packet.information_q16[selected[index]],
             packet.precision_q16[selected[index]],
+            map_epoch=packet.map_epoch,
         )
         for index, packet in enumerate(packets)
         if index in selected
@@ -221,6 +222,7 @@ class PhysicalRobotTeam:
         if positions.ndim != 2 or positions.shape[1] != 3 or len(positions) < 2:
             raise ValueError("physical team requires at least two 3D positions")
         self.graph = graph
+        self.map_epoch = 0
         self.latest_evidence = latest_evidence
         self.packet_budget_bytes = packet_budget_bytes
         self.radio = RadioMedium(positions, loss_seed=loss_seed, config=radio_config)
@@ -253,6 +255,7 @@ class PhysicalRobotTeam:
             arena=MCUArena(capacity),
             drop_on_factor_overflow=True,
             latest_evidence=self.latest_evidence,
+            map_epoch=self.map_epoch,
         )
 
     def _scan(self, domain, state, position, rng, *, robot=None, **kwargs):
@@ -432,12 +435,21 @@ class PhysicalRobotTeam:
         )
         return result
 
+    def _next_map_epoch(self):
+        if self.map_epoch >= MAX_MAP_EPOCH:
+            raise OverflowError("map epoch exhausted; start a new session")
+        return self.map_epoch + 1
+
     def replace_graph(self, graph, *, process_variance=0.02):
         """Transfer local factors on surviving cells, then rebuild spatial factors.
 
         Posterior marginals are never inserted as fresh independent evidence.
         Removed cells lose their factors. Sequence epochs continue across maps.
         """
+        prepared = self._prepare_graph_replacement(graph, process_variance)
+        return self._commit_graph_replacement(graph, prepared, process_variance)
+
+    def _prepare_graph_replacement(self, graph, process_variance):
         if not np.isfinite(process_variance) or process_variance < 0:
             raise ValueError("process variance must be finite and nonnegative")
         if (
@@ -445,6 +457,7 @@ class PhysicalRobotTeam:
             or graph.grid.cell != self.graph.grid.cell
         ):
             raise ValueError("geometry rebuild must keep the same voxel lattice")
+        next_epoch = self._next_map_epoch()
         lookup = {tuple(cell): i for i, cell in enumerate(graph.cells)}
         mapping = {}
         tolerance = 0.5 * graph.grid.cell[2]
@@ -455,14 +468,22 @@ class PhysicalRobotTeam:
                 and abs(self.graph.surface_z[old] - graph.surface_z[new]) <= tolerance
             ):
                 mapping[old] = new
+        previous_graph = self.graph
+        try:
+            self.graph = graph
+            robots = tuple(
+                self._new_robot(r.robot_id, r.position_m) for r in self.robots
+            )
+        finally:
+            self.graph = previous_graph
+        return mapping, robots, next_epoch
+
+    def _commit_graph_replacement(self, graph, prepared, process_variance):
+        mapping, robots, next_epoch = prepared
         old_robots = self.robots
-        self.graph = graph
-        self.robots = tuple(
-            self._new_robot(r.robot_id, r.position_m) for r in old_robots
-        )
         old_indices = np.array(list(mapping), dtype=int)
         new_indices = np.array(list(mapping.values()), dtype=int)
-        for old, new in zip(old_robots, self.robots, strict=True):
+        for old, new in zip(old_robots, robots, strict=True):
             old.consume()
             old.age_evidence(old_indices, process_variance)
             new.engine.local_precision[new_indices] = old.engine.local_precision[
@@ -480,12 +501,18 @@ class PhysicalRobotTeam:
             self.preserved_factors += len(new.seen_factors)
             new.next_sequence = old.next_sequence
             new.dropped_factors = old.dropped_factors
+            new.map_epoch = next_epoch
+            new.rejected_epoch_packets = old.rejected_epoch_packets
+            new.rejected_epoch_factors = old.rejected_epoch_factors
             new.sensor_state.update(old.sensor_state)
             new.deadline_misses = old.deadline_misses
             new.inference_sweeps = old.inference_sweeps
             self.arena_high_water_bytes = max(
                 self.arena_high_water_bytes, old.arena.high_water
             )
+        self.graph = graph
+        self.robots = robots
+        self.map_epoch = next_epoch
         self.geometry_revisions += 1
         self.scans = ()
         return mapping

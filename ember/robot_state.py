@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from cascade.extract import TraversabilityGraph
-from ember.comms import GaussianPacket, packetize_gaussians
+from ember.comms import MAX_MAP_EPOCH, GaussianPacket, packetize_gaussians
 from ember.gbp import GaussianBeliefPropagation, GBPConfig
 from mcu import Q16_SCALE, CycleBudget, MCUArena, MCUOutOfMemory
 from mcu.log_lmdp import LogQ16Solution, solve_log_q16
@@ -30,6 +30,9 @@ class RobotState:
     cycles_per_tick: int = 2_400_000
     drop_on_factor_overflow: bool = False
     latest_evidence: bool = False
+    map_epoch: int = 0
+    rejected_epoch_packets: int = field(default=0, init=False)
+    rejected_epoch_factors: int = field(default=0, init=False)
     replaced_factors: int = field(default=0, init=False)
     stale_factors: int = field(default=0, init=False)
     evidence_slots: dict[tuple[int, int], int] = field(default_factory=dict, init=False)
@@ -49,6 +52,12 @@ class RobotState:
     _routing_offset: int = field(default=0, init=False)
 
     def __post_init__(self) -> None:
+        if (
+            not isinstance(self.map_epoch, (int, np.integer))
+            or isinstance(self.map_epoch, (bool, np.bool_))
+            or not 0 <= self.map_epoch <= MAX_MAP_EPOCH
+        ):
+            raise ValueError("map epoch must fit in u32")
         if not 0 <= self.robot_id < 32:
             raise ValueError("robot_id must fit the source provenance bitmap")
         if min(self.queue_capacity, self.factor_capacity, self.cycles_per_tick) < 1:
@@ -86,19 +95,34 @@ class RobotState:
             )
         self._routing_offset = self.arena.used
 
-    def enqueue(self, packet: GaussianPacket) -> None:
-        if len(self.queue) >= self.queue_capacity:
-            raise BufferError("robot packet queue is full")
+    def enqueue(self, packet: GaussianPacket) -> bool:
         if packet.sender >= 32 or not packet.provenance & (1 << packet.sender):
             raise ValueError("packet does not identify its source factor owner")
+        if self._reject_wrong_epoch(packet):
+            return False
+        if len(self.queue) >= self.queue_capacity:
+            raise BufferError("robot packet queue is full")
         if np.any(packet.cells >= self.graph.n_nodes):
             raise ValueError("packet cell is outside the robot graph")
         self.queue.append(packet)
+        return True
+
+    def _reject_wrong_epoch(self, packet) -> bool:
+        if packet.map_epoch == self.map_epoch:
+            return False
+        self.rejected_epoch_packets += 1
+        self.rejected_epoch_factors += packet.cells.size
+        return True
 
     def observe(self, cells, means, variances) -> tuple[GaussianPacket, ...]:
         """Queue a new local sensor epoch without reusing factor identities."""
         packets = packetize_gaussians(
-            self.robot_id, self.next_sequence, cells, means, variances
+            self.robot_id,
+            self.next_sequence,
+            cells,
+            means,
+            variances,
+            map_epoch=self.map_epoch,
         )
         if self.next_sequence + len(packets) > 65536:
             raise BufferError("sensor factor sequence exhausted; start a new session")
@@ -116,6 +140,9 @@ class RobotState:
         accepted = 0
         while self.queue:
             packet = self.queue[0]
+            if self._reject_wrong_epoch(packet):
+                self.queue.popleft()
+                continue
             indices = []
             keys = set()
             for index, cell in enumerate(packet.cells):
@@ -152,6 +179,9 @@ class RobotState:
         accepted = 0
         while self.queue:
             packet = self.queue[0]
+            if self._reject_wrong_epoch(packet):
+                self.queue.popleft()
+                continue
             candidates = []
             seen_cells = set()
             for index, cell in enumerate(packet.cells):

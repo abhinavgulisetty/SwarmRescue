@@ -395,6 +395,9 @@ class DemoResult:
     latest_source_cell_evidence: bool = False
     replaced_source_cell_factors: int = 0
     stale_source_cell_factors: int = 0
+    map_epoch: int = 0
+    rejected_map_epoch_packets: int = 0
+    rejected_map_epoch_factors: int = 0
     robot_exposure_proxy: tuple[float, ...] = ()
     robot_search_exposure_proxy: tuple[float, ...] = ()
     robot_arrival_time_s: tuple[float | None, ...] = ()
@@ -1316,6 +1319,17 @@ def run_demo(
         if physical_team
         else 0,
         numeric_arena_high_water_bytes=physical_team.arena_high_water_bytes
+        if physical_team
+        else 0,
+        map_epoch=physical_team.map_epoch if physical_team else 0,
+        rejected_map_epoch_packets=sum(
+            r.rejected_epoch_packets for r in physical_team.robots
+        )
+        if physical_team
+        else 0,
+        rejected_map_epoch_factors=sum(
+            r.rejected_epoch_factors for r in physical_team.robots
+        )
         if physical_team
         else 0,
         latest_source_cell_evidence=latest_evidence,

@@ -279,6 +279,8 @@ class RegionRobotState(RobotState):
         accepted = RobotState.consume(self)
         # A cold peer measurement must not wash out a delivered hotspot.
         for packet in packets:
+            if packet.map_epoch != self.map_epoch:
+                continue
             retained = np.array(
                 [
                     (packet.sender, packet.sequence, int(cell)) in self.seen_factors
@@ -327,6 +329,7 @@ class RegionRobotTeam(PhysicalRobotTeam):
             factor_capacity=2048,
             drop_on_factor_overflow=True,
             latest_evidence=self.latest_evidence,
+            map_epoch=self.map_epoch,
             queue_capacity=64,
             fine_node_count=self.regions.fine.n_nodes,
         )
@@ -417,6 +420,7 @@ class RegionRobotTeam(PhysicalRobotTeam):
         )
 
     def replace_graph(self, graph, *, process_variance=0.02):
+        self._next_map_epoch()
         previous = self.regions
         if (
             graph.grid.origin != previous.fine.grid.origin
@@ -424,6 +428,12 @@ class RegionRobotTeam(PhysicalRobotTeam):
         ):
             raise ValueError("geometry rebuild must keep the same voxel lattice")
         current = RegionMap.build(graph, region_cells=previous.region_cells)
+        # Allocate and validate before consuming queues or discarding evidence.
+        try:
+            self.regions = current
+            prepared = self._prepare_graph_replacement(current.graph, process_variance)
+        finally:
+            self.regions = previous
         stable = {
             signature
             for signature in current.signatures
@@ -468,7 +478,7 @@ class RegionRobotTeam(PhysicalRobotTeam):
             if (tuple(cell), float(height)) in old_lookup
         ]
         self.regions = current
-        super().replace_graph(current.graph, process_variance=process_variance)
+        self._commit_graph_replacement(current.graph, prepared, process_variance)
         for old, robot, floors in zip(old_robots, self.robots, old_floors, strict=True):
             if surviving:
                 old_nodes, new_nodes = np.array(surviving).T

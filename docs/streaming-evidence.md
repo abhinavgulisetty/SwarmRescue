@@ -27,7 +27,7 @@ Process-variance aging scales every retained contribution by the same ratio used
 
 Arena-backed storage costs 18 bytes per capacity slot: two float64 canonical values and one uint16 sequence. The source/cell slot index and active identity set remain bounded Python metadata outside the numeric arena. Capacity is charged before regional allocation and oversized arenas still fail. New source/cell keys can still exhaust the table; an overflowing packet is rejected whole, including replacements in that packet. Existing-key packets can continue updating at capacity. Locally generated source sequences remain limited to 65,536 packets per session with no wraparound reuse; external senders must obey the same session rule.
 
-The current transport is synchronous across geometry transactions. Packets delayed across topology epochs are not supported by the wire protocol, which lacks a map epoch; this work does not solve that existing limitation. The whole embedded-memory and measured timing gates remain false. Host aging/index/refinement scratch, map geometry, packet objects, Python runtime and analytical cycle constants are not MCU deployment evidence.
+At the streaming-evidence checkpoint, transport was synchronous across geometry transactions and the wire protocol lacked a map epoch. [The subsequent map-epoch fix](map-epochs.md) now rejects delayed wrong-map packets within the coordinated shared-map reference; distributed map agreement and cross-session identity remain open. The whole embedded-memory and measured timing gates remain false. Host aging/index/refinement scratch, map geometry, packet objects, Python runtime and analytical cycle constants are not MCU deployment evidence.
 
 ## Validation and selection
 

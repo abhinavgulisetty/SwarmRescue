@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import struct
 from dataclasses import dataclass
+from numbers import Integral
 
 import numpy as np
 
@@ -12,6 +13,8 @@ from mcu import INT32_MAX, INT32_MIN, Q16_SCALE
 
 MAX_PAYLOAD_BYTES = 244
 _HEADER = struct.Struct("<BHBI")
+_EPOCH_HEADER = struct.Struct("<BHBIII")
+MAX_MAP_EPOCH = 0xFFFFFFFF
 _UPDATE = struct.Struct("<Iii")
 MAX_UPDATES = (MAX_PAYLOAD_BYTES - _HEADER.size) // _UPDATE.size
 PACKET_HEADER_BYTES = _HEADER.size
@@ -34,16 +37,23 @@ class GaussianPacket:
     cells: np.ndarray
     information_q16: np.ndarray
     precision_q16: np.ndarray
+    map_epoch: int = 0
 
     def __post_init__(self) -> None:
+        if (
+            not isinstance(self.map_epoch, Integral)
+            or isinstance(self.map_epoch, bool)
+            or not 0 <= self.map_epoch <= MAX_MAP_EPOCH
+        ):
+            raise ValueError("map epoch must fit in u32")
         if not 0 <= self.sender <= 255:
             raise ValueError("sender must fit in u8")
         if not 0 <= self.sequence <= 65535:
             raise ValueError("sequence must fit in u16")
         if not 0 <= self.ttl <= 255:
             raise ValueError("ttl must fit in u8")
-        if not 0 <= self.provenance <= 0xFFFFFFFF:
-            raise ValueError("provenance must fit in u32")
+        if not 1 <= self.provenance <= 0xFFFFFFFF:
+            raise ValueError("provenance must identify at least one source in u32")
         cells = np.array(self.cells, dtype=np.uint32, copy=True)
         information = np.array(self.information_q16, dtype=np.int32, copy=True)
         precision = np.array(self.precision_q16, dtype=np.int32, copy=True)
@@ -60,12 +70,21 @@ class GaussianPacket:
         object.__setattr__(self, "precision_q16", precision)
 
     @property
+    def header_bytes(self) -> int:
+        return _EPOCH_HEADER.size if self.map_epoch else _HEADER.size
+
+    @property
     def size_bytes(self) -> int:
-        return _HEADER.size + self.cells.size * _UPDATE.size
+        return self.header_bytes + self.cells.size * _UPDATE.size
 
     def encode(self) -> bytes:
+        fields = (self.sender, self.sequence, self.ttl, self.provenance)
         payload = bytearray(
-            _HEADER.pack(self.sender, self.sequence, self.ttl, self.provenance)
+            _EPOCH_HEADER.pack(
+                self.sender, self.sequence, self.ttl, 0, self.provenance, self.map_epoch
+            )
+            if self.map_epoch
+            else _HEADER.pack(*fields)
         )
         for cell, information, precision in zip(
             self.cells,
@@ -80,11 +99,23 @@ class GaussianPacket:
     def decode(cls, payload: bytes) -> GaussianPacket:
         if not _HEADER.size + _UPDATE.size <= len(payload) <= MAX_PAYLOAD_BYTES:
             raise ValueError("invalid Gaussian packet size")
-        body_size = len(payload) - _HEADER.size
-        if body_size % _UPDATE.size:
+        sender, sequence, ttl, marker = _HEADER.unpack_from(payload)
+        # Zero source provenance is invalid for a factor packet, so reserve it
+        # as an explicit extension marker. Truncation can never remove this
+        # discriminator while preserving a valid prefix frame.
+        header = _EPOCH_HEADER if marker == 0 else _HEADER
+        if (
+            len(payload) < header.size + _UPDATE.size
+            or (len(payload) - header.size) % _UPDATE.size
+        ):
             raise ValueError("truncated Gaussian update")
-        sender, sequence, ttl, provenance = _HEADER.unpack_from(payload)
-        updates = list(struct.iter_unpack(_UPDATE.format, payload[_HEADER.size :]))
+        if marker == 0:
+            sender, sequence, ttl, _, provenance, epoch = header.unpack_from(payload)
+            if epoch == 0:
+                raise ValueError("extended packet requires a nonzero map epoch")
+        else:
+            provenance, epoch = marker, 0
+        updates = list(struct.iter_unpack(_UPDATE.format, payload[header.size :]))
         cells, information, precision = zip(*updates, strict=True)
         return cls(
             sender,
@@ -94,6 +125,7 @@ class GaussianPacket:
             np.asarray(cells),
             np.asarray(information),
             np.asarray(precision),
+            map_epoch=epoch,
         )
 
     def forwarded(self) -> GaussianPacket | None:
@@ -107,6 +139,7 @@ class GaussianPacket:
             self.cells,
             self.information_q16,
             self.precision_q16,
+            map_epoch=self.map_epoch,
         )
 
 
@@ -119,6 +152,7 @@ def packetize_gaussians(
     *,
     ttl: int = 4,
     provenance: int | None = None,
+    map_epoch: int = 0,
 ) -> tuple[GaussianPacket, ...]:
     indices = np.asarray(cells)
     means = np.asarray(mean, dtype=np.float64)
@@ -155,12 +189,20 @@ def packetize_gaussians(
                 indices[part],
                 _q16(information[part]),
                 _q16(precision[part]),
+                map_epoch=map_epoch,
             )
         )
     return tuple(packets)
 
 
-def fuse_packet(belief: GaussianBelief, packet: GaussianPacket) -> GaussianBelief:
+def fuse_packet(
+    belief: GaussianBelief,
+    packet: GaussianPacket,
+    *,
+    map_epoch: int = 0,
+) -> GaussianBelief:
+    if packet.map_epoch != map_epoch:
+        raise ValueError("packet map epoch does not match the belief map")
     precision = packet.precision_q16.astype(np.float64) / Q16_SCALE
     information = packet.information_q16.astype(np.float64) / Q16_SCALE
     return belief.update(
@@ -169,6 +211,7 @@ def fuse_packet(belief: GaussianBelief, packet: GaussianPacket) -> GaussianBelie
 
 
 __all__ = [
+    "MAX_MAP_EPOCH",
     "MAX_PAYLOAD_BYTES",
     "MAX_UPDATES",
     "PACKET_HEADER_BYTES",

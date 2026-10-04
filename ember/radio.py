@@ -116,7 +116,8 @@ class RadioMedium:
         self.positions_m = positions.copy()
         self.wall_counts = walls.astype(np.int64, copy=True)
         if loss_seed is not None and (
-            isinstance(loss_seed, bool) or not isinstance(loss_seed, int)
+            isinstance(loss_seed, bool)
+            or not isinstance(loss_seed, int)
             or not 0 <= loss_seed < 2**64
         ):
             raise ValueError("loss_seed must be an unsigned 64-bit integer")
@@ -218,8 +219,8 @@ class RadioMedium:
         self._check_node(origin)
         received: list[list[GaussianPacket]] = [[] for _ in range(self.n_nodes)]
         received[origin].append(packet)
-        seen: list[set[tuple[int, int]]] = [set() for _ in range(self.n_nodes)]
-        seen[origin].add((packet.sender, packet.sequence))
+        seen: list[set[tuple[int, int, int]]] = [set() for _ in range(self.n_nodes)]
+        seen[origin].add((packet.sender, packet.sequence, packet.map_epoch))
         frontier: list[tuple[int, GaussianPacket]] = [(origin, packet)]
         total = RadioStats()
         rounds = 0
@@ -227,7 +228,8 @@ class RadioMedium:
             transmissions = tuple(
                 Transmission(
                     relay,
-                    self._next_flood_slot + rounds * self.n_nodes
+                    self._next_flood_slot
+                    + rounds * self.n_nodes
                     + (relay + message.sequence) % self.n_nodes,
                     message.encode(),
                 )
@@ -239,7 +241,7 @@ class RadioMedium:
             duplicates = 0
             for delivery in deliveries:
                 message = GaussianPacket.decode(delivery.payload)
-                key = (message.sender, message.sequence)
+                key = (message.sender, message.sequence, message.map_epoch)
                 if key in seen[delivery.receiver]:
                     duplicates += 1
                     continue

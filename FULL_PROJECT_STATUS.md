@@ -360,3 +360,32 @@ The source/cell index and identity metadata remain host-side; the whole embedded
 RAM and timing gates remain false. Unique source/cell keys can still saturate the
 table, and topology-epoch delivery, coupled temporal/range factors, real sensors
 and calibrated tenability remain open. No new completion percentage is claimed.
+
+
+## Map-epoch packet safety — 2026-10-04
+
+Coordinated physical-map rebuilds now advance a uint32 epoch, and source packets
+carry that map identity. Receivers reject old or future epochs before interpreting
+cell indices, and queued packets are rechecked before fusion. Regional hotspot
+floors follow the same rule. Epoch zero preserves the legacy wire bytes; later
+epochs use an explicit extension marker and a 16-byte header. All 19 updates still
+fit the 244-byte payload, and selection charges the extra eight header bytes.
+
+Rebuild preparation validates and allocates replacement states before consuming
+queues or discarding evidence. Allocation failure leaves the current map, epoch,
+evidence and pending queue intact. Source sequences continue across maps; epoch
+exhaustion fails without wrapping.
+
+All 541 tests and runtime Ruff pass. Five final physical runs pass: regional
+latest-reading inference reaches 4/4 sites in seed 7 and 8/8 in seeds 19 and 42;
+flat accumulation controls reach 4/4 and 8/8. Normal synchronized delivery has zero
+epoch rejections, while adversarial delayed/index-reuse cases are tested directly.
+The first length-only wire discriminator was rejected after a truncation ambiguity
+was found; its snapshot is retained and its interrupted runs are not acceptance
+evidence.
+
+See [the tracked map-epoch report](docs/map-epochs.md) for compatibility, byte
+budgets, replay tests, source archives and reproduction. This is a coordinated
+host map lifecycle, not distributed map consensus or cross-session replay
+protection. Whole embedded RAM, measured timing, deployed sensors, coupled
+localization and physical evacuation remain unfinished.
