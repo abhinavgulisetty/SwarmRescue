@@ -12,6 +12,7 @@ import numpy as np
 
 from cascade.extract import TraversabilityGraph, dijkstra_from
 from ember.localization import RSSIConfig, localize_rssi, sample_rssi
+from ember.range_gbp import RangeFactorGBP
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +22,11 @@ class CooperativeSearchResult:
     covariance_m2: np.ndarray
     rssi_dbm: np.ndarray
     robot_to_beacon: tuple[int, ...]
+    range_gbp: bool = False
+    range_gbp_converged: bool | None = None
+    range_gbp_sweeps: int = 0
+    range_gbp_linearizations: int = 0
+    localization_retained_numeric_bytes: int = 0
 
     @property
     def errors_m(self) -> np.ndarray:
@@ -103,6 +109,8 @@ def localize_and_assign(
     rng: np.random.Generator,
     *,
     config: RSSIConfig | None = None,
+    range_gbp: bool = False,
+    pose_covariance_m2: np.ndarray | None = None,
 ) -> CooperativeSearchResult:
     """Fuse BLE ranges, then compute the leaderless common minimum matching."""
 
@@ -113,15 +121,35 @@ def localize_and_assign(
     if survivors.shape != (robots.shape[0], 2):
         raise ValueError("this search slice requires one survivor per robot")
     cfg = config or RSSIConfig(noise_std_db=0.45)
+    if pose_covariance_m2 is not None and not range_gbp:
+        raise ValueError("pose covariance requires range GBP")
+    engine = None
+    if range_gbp:
+        covariance = (
+            np.tile(np.eye(2) * 1e-6, (len(robots), 1, 1))
+            if pose_covariance_m2 is None
+            else pose_covariance_m2
+        )
+        engine = RangeFactorGBP(robots, covariance, len(survivors))
     estimates = []
     covariances = []
     readings = []
-    for survivor in survivors:
+    for beacon, survivor in enumerate(survivors):
         rssi = sample_rssi(robots, survivor, rng, config=cfg)
         readings.append(rssi)
-        estimate = localize_rssi(robots, rssi, config=cfg)
-        estimates.append(estimate.position_m)
-        covariances.append(estimate.covariance_m2)
+        if engine is not None:
+            for source, reading in enumerate(rssi):
+                engine.observe_rssi(source, beacon, 0, float(reading), config=cfg)
+        else:
+            estimate = localize_rssi(robots, rssi, config=cfg)
+            estimates.append(estimate.position_m)
+            covariances.append(estimate.covariance_m2)
+    solution = engine.solve() if engine is not None else None
+    if solution is not None:
+        if not solution.converged:
+            raise RuntimeError("coupled range GBP did not converge")
+        estimates = [estimate.position_m for estimate in solution.estimates]
+        covariances = [estimate.covariance_m2 for estimate in solution.estimates]
     estimated = np.asarray(estimates)
     cost = np.linalg.norm(robots[:, None, :] - estimated[None, :, :], axis=2)
     # Every robot observes the same fused table and applies the same stable
@@ -139,6 +167,13 @@ def localize_and_assign(
         if len(claimed) == len(survivors):
             break
     return CooperativeSearchResult(
+        range_gbp=range_gbp,
+        range_gbp_converged=solution.converged if solution else None,
+        range_gbp_sweeps=solution.sweeps if solution else 0,
+        range_gbp_linearizations=solution.linearizations if solution else 0,
+        localization_retained_numeric_bytes=solution.retained_numeric_bytes
+        if solution
+        else 0,
         truth_positions_m=survivors,
         estimated_positions_m=estimated,
         covariance_m2=np.asarray(covariances),

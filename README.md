@@ -569,3 +569,16 @@ Experimental live sensing is available with `--sensing-interval-s 2` in
 `--distributed` missions. It updates hazard beliefs independently of rubble map
 refreshes. See [the paired sensing results](docs/hazard-sensing.md), including the
 seed 42 regression; the default remains disabled.
+
+
+## Coupled pose/range localization checkpoint
+
+An opt-in `--range-gbp` localizer now couples uncertain robot poses and beacon
+positions, with bounded latest-reading slots, replay protection, log-range RSSI
+likelihoods, and explicit nonlinear convergence checks. All 586 tests and runtime
+Ruff pass. All 600 paired development cases converge, with mean error falling
+from 0.379 m to 0.303 m and 95% coverage rising from 91.7% to 94.8%. Six physical
+comparisons reach all sites, but arrival/exposure gains are mixed, so the old
+localizer remains the default. Range-factor transport, pose/hazard coupling,
+real sensor calibration, whole embedded RAM/timing and evacuation remain open.
+See [the localization report](docs/range-localization.md).

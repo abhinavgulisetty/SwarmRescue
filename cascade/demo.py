@@ -374,6 +374,11 @@ class DemoResult:
     survivors_hidden: int = 0
     survivors_localized: int = 0
     max_localization_error_m: float = 0.0
+    range_gbp: bool = False
+    range_gbp_converged: bool | None = None
+    range_gbp_sweeps: int = 0
+    range_gbp_linearizations: int = 0
+    localization_retained_numeric_bytes: int = 0
     autonomous_search: bool = False
     distributed_physical: bool = False
     radio_bytes: int = 0
@@ -616,6 +621,7 @@ def run_demo(
     distributed_physical: bool = False,
     region_cells: int = 0,
     latest_evidence: bool = False,
+    range_gbp: bool = False,
     sensing_interval_s: float = 0.0,
     hazard_switch_min_gain: float = 0.15,
 ) -> DemoResult:
@@ -625,6 +631,8 @@ def run_demo(
         raise ValueError("distributed physical mode requires a live-disaster mission")
     if region_cells < 0 or (region_cells and not distributed_physical):
         raise ValueError("regional architecture requires distributed physical mode")
+    if range_gbp and not distributed_physical:
+        raise ValueError("range GBP requires distributed physical mode")
     if latest_evidence and not distributed_physical:
         raise ValueError("latest evidence requires distributed physical mode")
     if not np.isfinite(sensing_interval_s) or sensing_interval_s < 0:
@@ -921,6 +929,7 @@ def run_demo(
                         survivor_sites[:, :2],
                         search_rng,
                         config=RSSIConfig(noise_std_db=0.15),
+                        range_gbp=range_gbp,
                     )
                     stage.search_result = search_result
                     stage.localization_robot_positions = robot_positions.copy()
@@ -1386,6 +1395,17 @@ def run_demo(
         hazard_only_replans=hazard_only_replans,
         hazard_switch_min_gain=hazard_switch_min_gain,
         hazard_switches_suppressed=hazard_switches_suppressed,
+        range_gbp=range_gbp,
+        range_gbp_converged=search_result.range_gbp_converged
+        if search_result
+        else None,
+        range_gbp_sweeps=search_result.range_gbp_sweeps if search_result else 0,
+        range_gbp_linearizations=search_result.range_gbp_linearizations
+        if search_result
+        else 0,
+        localization_retained_numeric_bytes=(
+            search_result.localization_retained_numeric_bytes if search_result else 0
+        ),
         latest_source_cell_evidence=latest_evidence,
         replaced_source_cell_factors=sum(
             r.replaced_factors for r in physical_team.robots
@@ -2263,6 +2283,11 @@ def main(argv: list[str] | None = None) -> int:
         "0 disables; requires --distributed",
     )
     parser.add_argument(
+        "--range-gbp",
+        action="store_true",
+        help="experimental coupled pose/beacon range GBP; requires --distributed",
+    )
+    parser.add_argument(
         "--latest-evidence",
         action="store_true",
         help="experimental replacement of each source/cell's old reading; "
@@ -2331,6 +2356,8 @@ def main(argv: list[str] | None = None) -> int:
         or not 0 <= args.hazard_switch_min_gain < 1
     ):
         parser.error("--hazard-switch-min-gain must be finite in [0, 1)")
+    if args.range_gbp and not args.distributed:
+        parser.error("--range-gbp requires --distributed")
     if args.latest_evidence and not args.distributed:
         parser.error("--latest-evidence requires --distributed")
     if args.region_cells < 0 or (args.region_cells and not args.distributed):
@@ -2363,6 +2390,7 @@ def main(argv: list[str] | None = None) -> int:
         distributed_physical=args.distributed,
         region_cells=args.region_cells,
         latest_evidence=args.latest_evidence,
+        range_gbp=args.range_gbp,
         sensing_interval_s=args.sensing_interval_s,
         hazard_switch_min_gain=args.hazard_switch_min_gain,
     )

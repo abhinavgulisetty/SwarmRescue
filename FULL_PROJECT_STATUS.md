@@ -410,3 +410,16 @@ against unconditional sensing. It still trails the geometry-only control and
 loses gains in flat seed 7. Sensing remains disabled by default; no universal
 algorithm superiority, embedded memory/timing, or final project completion is
 claimed. See [the complete experiment record](docs/hazard-sensing.md).
+
+
+## Coupled pose/range localization checkpoint
+
+An opt-in `--range-gbp` localizer now couples uncertain robot poses and beacon
+positions, with bounded latest-reading slots, replay protection, log-range RSSI
+likelihoods, and explicit nonlinear convergence checks. All 586 tests and runtime
+Ruff pass. All 600 paired development cases converge, with mean error falling
+from 0.379 m to 0.303 m and 95% coverage rising from 91.7% to 94.8%. Six physical
+comparisons reach all sites, but arrival/exposure gains are mixed, so the old
+localizer remains the default. Range-factor transport, pose/hazard coupling,
+real sensor calibration, whole embedded RAM/timing and evacuation remain open.
+See [the localization report](docs/range-localization.md).
