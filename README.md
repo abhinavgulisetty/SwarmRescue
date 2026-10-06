@@ -590,3 +590,18 @@ routing and 600 deadline cases. The replay reserves 32,176 bytes including its
 stack; this is a kernel/harness measurement, not whole-robot RAM. All 592 tests
 and runtime Ruff pass. See [firmware emulation](docs/firmware-emulation.md) and
 [the current completion gates](COMPLETION_GATES.md) for what remains unfinished.
+
+
+## Receiver-local range transport — 2026-10-06
+
+`--range-gbp --range-radio` now sends typed RSSI packets through the physical
+radio and builds independent receiver factor tables. Replay/epoch checks and
+bounded retries preserve source identity; assignments use each robot's own
+estimate, with host-coordinated matching. Six physical pairs reach every site
+with unchanged trajectories/exposure; localization airtime is now included.
+The 120-case loss grid localizes every team through 75% packet error and
+reports full partitions unavailable, without a shared-data fallback. High-loss
+error still rises. The full suite has 650 passes and one optional ARM emulator
+skip; runtime Ruff passes. Known pose priors, bid transport, temporal pose/hazard
+coupling, whole firmware/resources and evacuation remain open. See the
+[range transport report](docs/range-transport.md).

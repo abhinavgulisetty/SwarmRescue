@@ -438,3 +438,18 @@ See [the emulator report](docs/firmware-emulation.md). Kernel emulator execution
 is closed; whole firmware, measured deadlines/resources, sensor calibration,
 range transport, pose/hazard coupling, NCA speed and physical evacuation remain
 open in [the current acceptance ledger](COMPLETION_GATES.md).
+
+
+## Receiver-local range transport — 2026-10-06
+
+`--range-gbp --range-radio` now sends typed RSSI packets through the physical
+radio and builds independent receiver factor tables. Replay/epoch checks and
+bounded retries preserve source identity; assignments use each robot's own
+estimate, with host-coordinated matching. Six physical pairs reach every site
+with unchanged trajectories/exposure; localization airtime is now included.
+The 120-case loss grid localizes every team through 75% packet error and
+reports full partitions unavailable, without a shared-data fallback. High-loss
+error still rises. The full suite has 650 passes and one optional ARM emulator
+skip; runtime Ruff passes. Known pose priors, bid transport, temporal pose/hazard
+coupling, whole firmware/resources and evacuation remain open. See the
+[range transport report](docs/range-transport.md).

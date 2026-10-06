@@ -121,10 +121,15 @@ class RangeLocalizationTeam:
 
     def _coverage_ready(self):
         dimension = self.receivers[0].anchors.shape[1]
-        return all(
-            np.all(np.sum(engine.sequences >= 0, axis=0) >= dimension + 1)
-            for engine in self.receivers
-        )
+        for engine in self.receivers:
+            for beacon in range(engine.ranges.shape[1]):
+                sources = np.flatnonzero(engine.sequences[:, beacon] >= 0)
+                if len(sources) < dimension + 1:
+                    return False
+                anchors = engine.anchors[sources]
+                if np.linalg.matrix_rank(anchors[1:] - anchors[0]) < dimension:
+                    return False
+        return True
 
     def exchange(self, readings_dbm, rng, *, max_rounds=3):
         max_rounds = uint(max_rounds, 8, "retransmission rounds")

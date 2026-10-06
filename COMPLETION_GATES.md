@@ -1,4 +1,4 @@
-# Current completion gates — 2026-10-04
+# Current completion gates — 2026-10-06
 
 The research project is **not fully complete**. The September 76% score was a historical weighted checkpoint, not a current acceptance result. Passing a component or site-arrival mission does not establish whole-system deployment, survival, or paper contribution gates.
 
@@ -7,7 +7,7 @@ The research project is **not fully complete**. The September 76% score was a hi
 | World, collapse, maps and physical driving | Implemented; regression suite and fresh physical missions pass | Broader deployment validation |
 | Separate hazard beliefs, replay protection, radio and native routing | Independent robot states; physical radio delivery; geometry epochs; bounded latest evidence; tested C kernels | Whole firmware integration and bounded metadata |
 | Robust integer route extraction | 500-cell underflow corridor; native/reference policy tests; Cortex-M4 replay | Target firmware I/O and measured deadlines |
-| Coupled pose/beacon localization | Joint vector GBP; all 600 development cases converge; mean error improves about 20%; six physical runs reach sites | Loss-limited range transport, independent receiver estimates, odometry/IMU and pose/hazard coupling |
+| Coupled pose/beacon localization | Joint vector GBP; all 600 development cases converge; mean error improves about 20%; six physical runs reach sites | Range transport and receiver-local estimates now implemented opt-in; host assignment, pose-prior transport, odometry/IMU and pose/hazard coupling remain |
 | Sensor and hazard inference | Visible thermal/smoke scans, host raycasts and modeled sensors | Deployed lidar/thermal/gas calibration, temporal/spatial coupling under pose uncertainty |
 | NCA contribution | Safeguard implemented; historical speedup about 1x | Training/export and deployed int8 evaluation; the 2x speed claim currently fails |
 | VoI and resilience contributions | Implemented component and procedural grids; historical scheduler correction recorded | Fresh frozen whole-system comparisons; physical receiver information gain and failure grid |
@@ -16,6 +16,6 @@ The research project is **not fully complete**. The September 76% score was a hi
 | Calibrated survival and patient evacuation | Procedural modeled evaluation; physical missions reach assigned sites | Validate tenability assumptions and implement physical patient extraction/egress |
 | Final sealed validation | Original set already opened; historical replay labeling preserved | Freeze final code/protocol/thresholds before selecting a genuinely unused evaluation set |
 
-The latest full regression run passes **592 tests**, including configured Cortex-M4 execution, and runtime Ruff passes. Learned speed, real sensor calibration, whole embedded resources, patient evacuation and final scientific validation remain open. No new whole-project completion percentage is assigned.
+The latest full regression run has **650 passes and one optional Cortex-M4 skip** because the temporary ARM tools are absent; runtime Ruff passes. The October 4 archived emulator run remains the ARM execution evidence. Learned speed, real sensor calibration, whole embedded resources, patient evacuation and final scientific validation remain open. No new whole-project completion percentage is assigned.
 
 Detailed evidence: [localization](docs/range-localization.md), [firmware emulation](docs/firmware-emulation.md), [architecture](docs/architecture-experiments.md), [sensing](docs/hazard-sensing.md), and [full historical status](FULL_PROJECT_STATUS.md).

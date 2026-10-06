@@ -60,3 +60,9 @@ Archive SHA-256 values:
 - `outputs/demo/range-gbp/seed7-control.json`: `09faed2c1e57423d7981be00940ad09312fad5dc0c38890561498a9ccd736f1f`.
 - `outputs/demo/range-gbp/seed7-gbp.json`: `980a618581b9174c41793e8868944f41a14a24680be1a0bae73efa88af3fc85b`.
 - `outputs/eval/localization-gbp-final.json`: `a06ca3afa8bafa84b50d9ac02ed186d4f6b6a7a2a66b1cc491698e62689666a3`.
+
+
+The shared-table transport boundary above describes the October 4 checkpoint.
+October 6 adds opt-in actual range delivery and receiver-local estimates; see the
+[range transport report](range-transport.md). Host matching and shared pose
+priors still remain outside a fully distributed search claim.

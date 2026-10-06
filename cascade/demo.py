@@ -29,6 +29,7 @@ from time import perf_counter
 import mujoco
 import numpy as np
 
+from ember.geometry_sensing import radio_wall_counts
 from ember.localization import RSSIConfig, rssi_to_range
 from ember.manifest import capture_manifest, write_source_bundle
 from ember.physical import (
@@ -375,6 +376,11 @@ class DemoResult:
     survivors_localized: int = 0
     max_localization_error_m: float = 0.0
     range_gbp: bool = False
+    range_radio_enabled: bool = False
+    range_radio_bytes: int = 0
+    range_radio_rounds: int = 0
+    range_receiver_factor_counts: tuple[int, ...] = ()
+    localization_team_numeric_bytes: int = 0
     range_gbp_converged: bool | None = None
     range_gbp_sweeps: int = 0
     range_gbp_linearizations: int = 0
@@ -622,6 +628,8 @@ def run_demo(
     region_cells: int = 0,
     latest_evidence: bool = False,
     range_gbp: bool = False,
+    range_radio: bool = False,
+    range_max_rounds: int = 3,
     sensing_interval_s: float = 0.0,
     hazard_switch_min_gain: float = 0.15,
 ) -> DemoResult:
@@ -631,6 +639,14 @@ def run_demo(
         raise ValueError("distributed physical mode requires a live-disaster mission")
     if region_cells < 0 or (region_cells and not distributed_physical):
         raise ValueError("regional architecture requires distributed physical mode")
+    if range_radio and not range_gbp:
+        raise ValueError("range radio requires range GBP")
+    if (
+        not isinstance(range_max_rounds, int)
+        or isinstance(range_max_rounds, bool)
+        or not 1 <= range_max_rounds <= 8
+    ):
+        raise ValueError("range transmission rounds must be in 1..8")
     if range_gbp and not distributed_physical:
         raise ValueError("range GBP requires distributed physical mode")
     if latest_evidence and not distributed_physical:
@@ -924,13 +940,24 @@ def run_demo(
                     robot_positions = _trail_surface_positions(
                         swarm.positions(data), swarm
                     )
+                    if range_radio:
+                        physical_team.radio.positions_m[:] = robot_positions + np.array(
+                            [0, 0, 0.3]
+                        )
+                        physical_team.radio.wall_counts[:] = radio_wall_counts(
+                            model, data, physical_team.radio.positions_m
+                        )
                     search_result = localize_and_assign(
                         robot_positions[:, :2],
                         survivor_sites[:, :2],
                         search_rng,
                         config=RSSIConfig(noise_std_db=0.15),
                         range_gbp=range_gbp,
+                        range_radio=physical_team.radio if range_radio else None,
+                        range_max_rounds=range_max_rounds,
                     )
+                    if range_radio:
+                        physical_team.radio_stats += search_result.range_radio_stats
                     stage.search_result = search_result
                     stage.localization_robot_positions = robot_positions.copy()
                     stage.search_status = (
@@ -1396,6 +1423,17 @@ def run_demo(
         hazard_switch_min_gain=hazard_switch_min_gain,
         hazard_switches_suppressed=hazard_switches_suppressed,
         range_gbp=range_gbp,
+        range_radio_enabled=range_radio,
+        range_radio_bytes=search_result.range_radio_stats.bytes_air
+        if search_result
+        else 0,
+        range_radio_rounds=search_result.range_radio_rounds if search_result else 0,
+        range_receiver_factor_counts=search_result.range_receiver_factor_counts
+        if search_result
+        else (),
+        localization_team_numeric_bytes=search_result.localization_team_numeric_bytes
+        if search_result
+        else 0,
         range_gbp_converged=search_result.range_gbp_converged
         if search_result
         else None,
@@ -2283,6 +2321,18 @@ def main(argv: list[str] | None = None) -> int:
         "0 disables; requires --distributed",
     )
     parser.add_argument(
+        "--range-radio",
+        action="store_true",
+        help="experimental receiver-local range factors over physical radio; "
+        "requires --range-gbp",
+    )
+    parser.add_argument(
+        "--range-rounds",
+        type=int,
+        default=3,
+        help="maximum localization transmission rounds (1..8)",
+    )
+    parser.add_argument(
         "--range-gbp",
         action="store_true",
         help="experimental coupled pose/beacon range GBP; requires --distributed",
@@ -2356,6 +2406,10 @@ def main(argv: list[str] | None = None) -> int:
         or not 0 <= args.hazard_switch_min_gain < 1
     ):
         parser.error("--hazard-switch-min-gain must be finite in [0, 1)")
+    if args.range_radio and not args.range_gbp:
+        parser.error("--range-radio requires --range-gbp")
+    if not 1 <= args.range_rounds <= 8:
+        parser.error("--range-rounds must be in 1..8")
     if args.range_gbp and not args.distributed:
         parser.error("--range-gbp requires --distributed")
     if args.latest_evidence and not args.distributed:
@@ -2391,6 +2445,8 @@ def main(argv: list[str] | None = None) -> int:
         region_cells=args.region_cells,
         latest_evidence=args.latest_evidence,
         range_gbp=args.range_gbp,
+        range_radio=args.range_radio,
+        range_max_rounds=args.range_rounds,
         sensing_interval_s=args.sensing_interval_s,
         hazard_switch_min_gain=args.hazard_switch_min_gain,
     )
@@ -2427,6 +2483,9 @@ def main(argv: list[str] | None = None) -> int:
                     "metrics": metrics,
                     "accepted": result.accepted,
                     "provenance": asdict(manifest),
+                    "range_factor_transport_modeled": args.range_radio,
+                    "localization_assignment_transport_modeled": False,
+                    "localization_anchor_prior_transport_modeled": False,
                     "physical_survivor_evacuation": False,
                     "embedded_timing_calibrated": False,
                     "whole_phase1_acceptance_gate_met": False,

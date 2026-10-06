@@ -227,3 +227,89 @@ def test_source_sequence_exhaustion_never_wraps():
     with pytest.raises(OverflowError):
         team.exchange(readings, np.random.default_rng(7))
     assert all(np.all(e.sequences == -1) for e in team.receivers)
+
+
+def test_search_routes_to_its_assigned_receivers_estimate():
+    from ember.search import localize_and_assign
+
+    team, _, _ = world()
+    survivors = np.array([[1.5, 2], [6.5, 1.5], [2, 6.5], [6, 6]], float)
+    result = localize_and_assign(
+        team.receivers[0].anchors,
+        survivors,
+        np.random.default_rng(7),
+        range_gbp=True,
+        range_radio=team.radio,
+    )
+    assert result.range_radio_enabled and result.range_gbp_converged
+    assert result.range_radio_stats.bytes_air > 0
+    assert result.range_radio_rounds == 1 and sorted(result.robot_to_beacon) == list(
+        range(4)
+    )
+    for receiver, beacon in enumerate(result.robot_to_beacon):
+        np.testing.assert_array_equal(
+            result.estimated_positions_m[beacon],
+            result.receiver_estimated_positions_m[receiver, beacon],
+        )
+        np.testing.assert_array_equal(
+            result.covariance_m2[beacon],
+            result.receiver_covariance_m2[receiver, beacon],
+        )
+
+
+def test_partitioned_search_reports_unavailable_instead_of_using_shared_table():
+    from ember.search import localize_and_assign
+
+    team, _, _ = world(loss=1)
+    survivors = np.array([[1.5, 2], [6.5, 1.5], [2, 6.5], [6, 6]], float)
+    with pytest.raises(RuntimeError, match="unavailable for receivers"):
+        localize_and_assign(
+            team.receivers[0].anchors,
+            survivors,
+            np.random.default_rng(7),
+            range_gbp=True,
+            range_radio=team.radio,
+        )
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--range-radio", "--live-disaster"],
+        ["--range-rounds", "0"],
+        ["--range-rounds", "9"],
+    ],
+)
+def test_cli_rejects_unsupported_range_delivery_configuration(args):
+    from cascade.demo import main
+
+    with pytest.raises(SystemExit) as result:
+        main(args)
+    assert result.value.code == 2
+
+
+def test_retry_continues_when_received_anchor_count_is_sufficient_but_collinear(
+    monkeypatch,
+):
+    poses = np.array([[0, 0], [4, 0], [8, 0], [0, 8]], float)
+    radio = RadioMedium(poses, loss_seed=7, config=RadioConfig(packet_error_rate=0))
+    team = RangeLocalizationTeam(poses, np.tile(np.eye(2) * 0.01, (4, 1, 1)), 1, radio)
+    cfg = team.sensor_config
+    readings = sample_rssi(
+        poses, np.array([3, 2]), np.random.default_rng(7), config=cfg
+    )[:, None]
+    original = radio.transmit
+    blocked = False
+
+    def lose_fourth_source_once(frames, rng):
+        nonlocal blocked
+        deliveries, stats = original(frames, rng)
+        if not blocked and RangePacket.decode(frames[0].payload).sender == 3:
+            blocked = True
+            return (), replace(stats, delivered=0, randomly_dropped=stats.delivered)
+        return deliveries, stats
+
+    monkeypatch.setattr(radio, "transmit", lose_fourth_source_once)
+    result = team.exchange(readings, np.random.default_rng(7), max_rounds=3)
+    assert result.available and result.rounds == 2
+    assert result.factor_counts == (4, 4, 4, 4)
