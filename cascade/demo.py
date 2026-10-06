@@ -31,7 +31,7 @@ import numpy as np
 
 from ember.geometry_sensing import radio_wall_counts
 from ember.localization import RSSIConfig, rssi_to_range
-from ember.manifest import capture_manifest, write_source_bundle
+from ember.manifest import capture_manifest, write_runtime_source_bundle
 from ember.physical import (
     PhysicalRouteResult,
     hazard_route_change_allowed,
@@ -2501,10 +2501,7 @@ def main(argv: list[str] | None = None) -> int:
                 "distributed_physical": result.distributed_physical,
             },
         )
-        if (before.git_sha, before.dirty_diff_hash) != (
-            manifest.git_sha,
-            manifest.dirty_diff_hash,
-        ):
+        if before.source_identity != manifest.source_identity:
             raise RuntimeError(
                 "source changed during physical validation; rerun from stable source"
             )
@@ -2531,7 +2528,7 @@ def main(argv: list[str] | None = None) -> int:
             + "\n"
         )
         if args.distributed:
-            write_source_bundle(report_path.with_suffix(".source.tar.gz"))
+            write_runtime_source_bundle(report_path.with_suffix(".source.tar.gz"))
     return 0 if result.accepted else 1
 
 

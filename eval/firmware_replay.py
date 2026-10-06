@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from cascade.extract import TraversabilityGraph, VoxelGrid
-from ember.manifest import capture_manifest, write_source_bundle
+from ember.manifest import capture_manifest, write_runtime_source_bundle
 from ember.routing import LMDPConfig, LMDPModel
 from ember.routing.deadline import deadline_route
 from eval.harness import parse_seed_spec
@@ -346,10 +346,7 @@ def main(argv=None):
     except subprocess.CalledProcessError as error:
         raise RuntimeError(error.stderr) from error
     after = capture_manifest(0, config, metrics)
-    if (before.git_sha, before.dirty_diff_hash) != (
-        after.git_sha,
-        after.dirty_diff_hash,
-    ):
+    if before.source_identity != after.source_identity:
         raise RuntimeError("source changed during firmware validation")
     report = {
         "schema_version": 1,
@@ -362,7 +359,7 @@ def main(argv=None):
     }
     path = args.out / "report.json"
     path.write_text(json.dumps(report, indent=2) + "\n")
-    write_source_bundle(path.with_suffix(".source.tar.gz"))
+    write_runtime_source_bundle(path.with_suffix(".source.tar.gz"))
     print(json.dumps(metrics, indent=2))
     return 0
 

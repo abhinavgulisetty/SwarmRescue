@@ -15,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ember.manifest import capture_manifest, write_source_bundle
+from ember.manifest import capture_manifest, write_runtime_source_bundle
 from eval.harness import parse_seed_spec
 from eval.procedural import (
     HELD_OUT_WORLD_SEEDS,
@@ -163,10 +163,7 @@ def evaluate_innovations(config, *, algorithms=None, root=None, progress=None):
         ),
     )
     after = capture_manifest(config.world_seeds[0], asdict(config), {}, root=root)
-    if (before.git_sha, before.dirty_diff_hash) != (
-        after.git_sha,
-        after.dirty_diff_hash,
-    ):
+    if before.source_identity != after.source_identity:
         raise RuntimeError(
             "source changed during experiment; rerun from a stable source"
         )
@@ -219,7 +216,7 @@ def main(argv=None):
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     if args.source_bundle:
-        digest = write_source_bundle(args.source_bundle)
+        digest = write_runtime_source_bundle(args.source_bundle)
         print(f"source: {args.source_bundle} (sha256 {digest})")
     for name in report["ranking"]:
         metrics = report["summary"][name]["metrics"]

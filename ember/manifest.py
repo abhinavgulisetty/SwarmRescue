@@ -11,7 +11,7 @@ import subprocess
 import tarfile
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from importlib.metadata import PackageNotFoundError, version
+from importlib.metadata import PackageNotFoundError, distribution, version
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +29,21 @@ class RunManifest:
     config: dict[str, Any]
     versions: dict[str, str]
     metrics: dict[str, int | float | str | bool]
+    source_kind: str = "git"
+    source_fingerprint: str | None = None
+    package_version: str | None = None
+
+    @property
+    def source_identity(self):
+        return (
+            self.source_kind,
+            self.git_sha,
+            self.dirty_diff_hash,
+            self.source_fingerprint,
+            self.package_version,
+            self.lockfile_hash,
+            tuple(sorted(self.versions.items())),
+        )
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=2, sort_keys=True) + "\n"
@@ -107,6 +122,92 @@ def _versions() -> dict[str, str]:
     return found
 
 
+def installed_source_files():
+    """Identify this non-editable wheel and its shipped runtime source assets."""
+    try:
+        package = distribution("swarmrescue")
+    except PackageNotFoundError:
+        return None
+    names = {str(item) for item in package.files or ()}
+    required = {"ember/manifest.py", "firmware/log_lmdp.c", "swarmrescue/cli.py"}
+    if not required <= names:
+        return None
+    if package.locate_file("ember/manifest.py").resolve() != Path(__file__).resolve():
+        return None
+    root = package.locate_file("").resolve()
+    prefixes = (
+        "cascade/",
+        "hazard/",
+        "ember/",
+        "mcu/",
+        "eval/",
+        "firmware/",
+        "swarmrescue/",
+    )
+    files = []
+    digest = hashlib.sha256(package.version.encode())
+    for name in sorted(names):
+        if not name.startswith(prefixes) or Path(name).suffix not in {
+            ".py",
+            ".c",
+            ".h",
+            ".ld",
+            ".json",
+            ".txt",
+        }:
+            continue
+        source = package.locate_file(name).resolve()
+        if not source.is_relative_to(root) or not source.is_file():
+            raise ValueError(
+                "installed runtime source is missing or escapes package root"
+            )
+        payload = source.read_bytes()
+        digest.update(name.encode() + b"\0" + hashlib.sha256(payload).digest())
+        files.append((name, payload))
+    return package.version, digest.hexdigest(), files, root
+
+
+def write_runtime_source_bundle(path: Path, *, root: Path | None = None) -> str:
+    """Archive actual wheel sources, or retain the existing Git-diff archive."""
+    installed = installed_source_files() if root is None else None
+    if installed is None:
+        return write_source_bundle(path, root=root)
+    package_version, fingerprint, files, _ = installed
+    metadata = {
+        "schema_version": 2,
+        "source_kind": "installed_distribution",
+        "git_sha": "unknown",
+        "dirty_diff_hash": None,
+        "package_version": package_version,
+        "source_fingerprint": fingerprint,
+        "source_files": [
+            {"path": name, "sha256": hashlib.sha256(payload).hexdigest()}
+            for name, payload in files
+        ],
+    }
+    destination = path.resolve()
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(temporary, mode="w:gz") as archive:
+        for name, payload in [
+            (
+                "bundle.json",
+                (json.dumps(metadata, sort_keys=True, indent=2) + "\n").encode(),
+            ),
+            *(("installed/" + name, payload) for name, payload in files),
+        ]:
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            info.mode = 0o644
+            info.mtime = 0
+            archive.addfile(info, io.BytesIO(payload))
+    temporary.replace(destination)
+    result = _sha256_file(destination)
+    if result is None:
+        raise RuntimeError("installed source bundle was not written")
+    return result
+
+
 def capture_manifest(
     seed: int,
     config: dict[str, Any],
@@ -120,19 +221,33 @@ def capture_manifest(
         raise ValueError("seed must be an integer")
     normalized = json.loads(json.dumps(config, sort_keys=True))
     source_root = root or Path.cwd()
-    git_sha, git_dirty, dirty_diff_hash = _git_state(source_root)
+    installed = installed_source_files() if root is None else None
+    if installed:
+        package_version, fingerprint, _, package_root = installed
+        git_sha, git_dirty, dirty_diff_hash = "unknown", False, None
+        source_kind = "installed_distribution"
+        lockfile_hash = _sha256_file(package_root / "swarmrescue/runtime-lock.txt")
+    else:
+        git_sha, git_dirty, dirty_diff_hash = _git_state(source_root)
+        package_version = None
+        fingerprint = dirty_diff_hash or (git_sha if git_sha != "unknown" else None)
+        source_kind = "git" if git_sha != "unknown" else "unversioned"
+        lockfile_hash = _sha256_file(source_root / "uv.lock")
     return RunManifest(
-        schema_version=2,
+        schema_version=3 if installed else 2,
         created_at_utc=datetime.now(UTC).isoformat(),
         seed=seed,
         git_sha=git_sha,
         git_dirty=git_dirty,
         dirty_diff_hash=dirty_diff_hash,
-        lockfile_hash=_sha256_file(source_root / "uv.lock"),
+        lockfile_hash=lockfile_hash,
         config_hash=_canonical_hash(normalized),
         config=normalized,
         versions=_versions(),
         metrics=dict(metrics),
+        source_kind=source_kind,
+        source_fingerprint=fingerprint,
+        package_version=package_version,
     )
 
 
@@ -233,5 +348,6 @@ __all__ = [
     "RunManifest",
     "capture_manifest",
     "write_manifest",
+    "write_runtime_source_bundle",
     "write_source_bundle",
 ]

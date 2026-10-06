@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from ember.localization import RSSIConfig, sample_rssi
-from ember.manifest import capture_manifest, write_source_bundle
+from ember.manifest import capture_manifest, write_runtime_source_bundle
 from ember.radio import RadioConfig, RadioMedium
 from ember.range_gbp import RangeFactorGBP
 from ember.range_team import RangeLocalizationTeam
@@ -179,10 +179,7 @@ def main(argv=None):
             }
         )
     after = capture_manifest(0, config, {})
-    if (before.git_sha, before.dirty_diff_hash) != (
-        after.git_sha,
-        after.dirty_diff_hash,
-    ):
+    if before.source_identity != after.source_identity:
         raise RuntimeError("source changed during range delivery validation")
     report = {
         "schema_version": 1,
@@ -197,7 +194,7 @@ def main(argv=None):
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2) + "\n")
-    write_source_bundle(args.out.with_suffix(".source.tar.gz"))
+    write_runtime_source_bundle(args.out.with_suffix(".source.tar.gz"))
     print(json.dumps(summary, indent=2))
     # Partition unavailability is an expected result, not a passing rescue.
     valid = all(

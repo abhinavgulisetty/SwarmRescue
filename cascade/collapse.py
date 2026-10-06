@@ -15,6 +15,7 @@ rather than silently reused.
 from __future__ import annotations
 
 import hashlib
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,9 +28,21 @@ from .damage import BlastDamage, sample_damage
 from .params import CollapseParams
 from .structure import Structure
 
+
 #: Where settled keyframes live.  Regenerable from (seed, generator), so the
 #: directory is a cache and is git-ignored.
-CACHE_DIR = Path(__file__).resolve().parent / "cache"
+def default_cache_dir() -> Path:
+    override = os.environ.get("SWARMRESCUE_CACHE_DIR")
+    if override:
+        return Path(override).expanduser()
+    package = Path(__file__).resolve().parent
+    if (package.parent / "pyproject.toml").is_file():
+        return package / "cache"
+    base = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
+    return base / "swarmrescue" / "collapse"
+
+
+CACHE_DIR = default_cache_dir()
 
 #: Cache format version.  Bump to invalidate every stored keyframe.
 #:

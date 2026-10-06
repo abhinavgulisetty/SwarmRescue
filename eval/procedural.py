@@ -40,7 +40,7 @@ from ember.localization import (
     localize_rssi,
     sample_rssi,
 )
-from ember.manifest import capture_manifest, write_source_bundle
+from ember.manifest import capture_manifest, write_runtime_source_bundle
 from ember.radio import RadioConfig, RadioMedium, RadioStats
 from ember.robot_state import RobotState
 from ember.routing import (
@@ -1937,7 +1937,7 @@ def main(argv: list[str] | None = None) -> int:
     report = evaluate_procedural(config)
     bundle_hash = None
     if args.source_bundle is not None:
-        bundle_hash = write_source_bundle(args.source_bundle)
+        bundle_hash = write_runtime_source_bundle(args.source_bundle)
     write_procedural_report(report, args.out)
     write_procedural_csv(report, args.csv)
     print(format_procedural_summary(report))

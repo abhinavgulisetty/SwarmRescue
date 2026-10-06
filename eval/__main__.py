@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from ember.manifest import write_source_bundle
+from ember.manifest import write_runtime_source_bundle
 from eval.harness import (
     EvaluationConfig,
     evaluate,
@@ -62,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
     report = evaluate(config)
     bundle_hash = None
     if args.source_bundle is not None:
-        bundle_hash = write_source_bundle(args.source_bundle)
+        bundle_hash = write_runtime_source_bundle(args.source_bundle)
     write_report(report, args.out)
     write_runs_csv(report, args.csv)
     print(format_summary(report))

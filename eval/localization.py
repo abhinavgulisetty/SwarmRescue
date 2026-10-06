@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from ember.localization import RSSIConfig, localize_rssi, sample_rssi
-from ember.manifest import capture_manifest, write_source_bundle
+from ember.manifest import capture_manifest, write_runtime_source_bundle
 from ember.range_gbp import RangeFactorGBP
 from eval.harness import parse_seed_spec
 
@@ -138,10 +138,7 @@ def main(argv=None):
             for metric in ("mean_error_m", "max_error_m", "coverage_95")
         }
     after = capture_manifest(0, config, {})
-    if (before.git_sha, before.dirty_diff_hash) != (
-        after.git_sha,
-        after.dirty_diff_hash,
-    ):
+    if before.source_identity != after.source_identity:
         raise RuntimeError("source changed during localization evaluation")
     report = {
         "schema_version": 1,
@@ -155,7 +152,7 @@ def main(argv=None):
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2) + "\n")
-    write_source_bundle(args.out.with_suffix(".source.tar.gz"))
+    write_runtime_source_bundle(args.out.with_suffix(".source.tar.gz"))
     print(json.dumps(summary, indent=2))
     return 0 if summary["range_gbp_converged"] == len(cases) else 1
 
