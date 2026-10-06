@@ -101,6 +101,25 @@ def install(wheel, prefix, *, tool_root=None):
                 command, cwd=folder, check=True, capture_output=True, text=True
             )
             firmware = json.loads(build.stdout)
+            probe = subprocess.run(
+                [
+                    str(python),
+                    "-c",
+                    "import json, sys; from mcu.runtime import FirmwareBackend\n"
+                    "with FirmwareBackend(sys.argv[1], arm=True, "
+                    "tool_root=sys.argv[2], timeout_s=10) as backend:\n"
+                    "    print(json.dumps({'passed': True, "
+                    "'emulator': backend.metadata['emulator'], "
+                    "'image_sha256': backend.image_sha256}))\n",
+                    firmware["executable"],
+                    str(tool_root),
+                ],
+                cwd=folder,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            firmware["startup_check"] = json.loads(probe.stdout)
     (prefix / "doctor.json").write_text(json.dumps(health, indent=2) + "\n")
     launcher = write_launcher(prefix, cli, firmware=firmware, tool_root=tool_root)
     report = {
