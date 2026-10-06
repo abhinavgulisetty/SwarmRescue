@@ -1,45 +1,50 @@
 # SwarmRescue — EMBER
 
-**E**dge-native **M**essage-passing for **B**ellman-**E**gress **R**outing: a consensus-free rescue
-swarm in which the risk map, the route plan, and the radio schedule are one fixed point.
+**E**dge-native **M**essage-passing for **B**ellman-**E**gress **R**outing.
 
-> 📄 **The full project proposal is in [`PROPOSAL.md`](PROPOSAL.md).**
-> 📊 **Review-package readiness is in [`CHECKPOINT_75.md`](CHECKPOINT_75.md).**
-> 🧭 **Whole-project completion (currently 76%) is in [`FULL_PROJECT_STATUS.md`](FULL_PROJECT_STATUS.md).**
+SwarmRescue is a working simulation and firmware-kernel research prototype. Version
+0.2.0 installs as a standalone package and supports an eight-robot physical MuJoCo
+mission with independent receiver beliefs, lossy radio, range-factor localization,
+geometry-triggered replanning and live Cortex-M4 integer routing for two robots.
+Host code still handles sensors, localization, assignment and fine geometry.
+Reaching survivor sites is implemented; physical patient evacuation remains open.
 
-## In one paragraph
+[Deployment instructions](docs/deployment.md), [current acceptance gates](COMPLETION_GATES.md),
+[historical evidence](FULL_PROJECT_STATUS.md), and [research proposal](PROPOSAL.md).
+The September completion percentage is historical and does not describe this release.
 
-8–24 small ground robots search a procedurally generated, physically collapsed, burning
-multi-storey building. Every robot's intelligence runs inside a simulated ESP32-class budget
-(240 MHz, 520 KB RAM, no FPU, integer arithmetic only). There is no central coordinator, no leader
-election, no global clock, and no failure detector. Robots cooperatively estimate a propagating
-hazard field by Gaussian belief propagation whose prior *is* the hazard PDE, route survivors by
-relaxing a linearly-solvable Bellman equation with a safeguarded neural cellular automaton, and
-decide what to transmit by adjoint sensitivity — sending only the information that could change
-somebody's route.
+## Deployed release
 
-## The four claims
+The checked local deployment is in `outputs/deployment/final/`. Run its eight-robot mission:
 
-| | Contribution |
-|---|---|
-| **C1** | The hazard belief's covariance enters the routing objective **analytically** (KL-control), and one scalar's sign switches the same operator between risk-averse escort and uncertainty-seeking search. No tuned cost inflation anywhere. |
-| **C2** | A ~2.5 KB int8 **safeguarded NCA** accelerates the Bellman relaxation, with a local acceptance test making divergence **impossible for any weights** (Prop. 1). Learning inside a safety-critical embedded loop, made safe by safeguarding rather than verification. |
-| **C3** | **Adjoint-weighted value-of-information gossip**: the co-desirability field `z†` (same kernel, transposed graph) tells each robot which cells trajectories actually flow through, so the swarm is loud about a fire in a critical stairwell and silent about one in a dead end. New metric: **nats per byte**. |
-| **C4** | **No failure detector.** Robot death and radio partition are the same event to the estimator; unrefreshed beliefs lose precision, and pessimistic routing withdraws from unwatched regions automatically. |
+```bash
+outputs/deployment/final/run-mission
+```
 
-## Constraints honoured
+The launcher uses the isolated installed environment and two Cortex-M4 QEMU workers.
+It records a JSON acceptance report and the installed sources used for that run.
+Build/install commands and prerequisites are in [the deployment guide](docs/deployment.md).
+No physical board was flashed and no remote deployment or Git push was performed.
 
-- Simulation only — **no ROS, no ROS 2, no Webots, no stock scenes.**
-- MuJoCo 3.x + Taichi + NumPy; PyTorch offline only, for training the NCA.
-- The rubble is **not hand-placed**: it is the settled result of a simulated structural collapse.
-- Secondary collapses during the demo are **causal** (thermal damage integral releases a real
-  MuJoCo weld constraint), never scripted animation.
-- The Tier-A substrate now provides saturating Q16.16, a 520 KB arena, analytical cycle budgets,
-  and stale-action fallback on deadline misses; porting every robot kernel onto it is still open.
-- Kernels are cross-validated against **real firmware** under QEMU-xtensa (ESP32) and Renode
-  (Cortex-M4); 1–2 robots run that firmware live during the final demo.
+## Research contributions and current evidence
 
-## Running it
+| Proposed contribution | Implemented evidence and remaining gates |
+| --- | --- |
+| **C1: uncertainty-aware routing** | Independent beliefs feed uncertainty-aware route costs; native integer and emulator policies are cross-checked. Calibrated whole-system survival comparisons remain open. |
+| **C2: safeguarded learned acceleration** | Safeguard and training infrastructure exist. The historical roughly 1x result fails the proposed 2x threshold; deployed int8 acceleration is not established. |
+| **C3: adjoint/VoI communication** | Scheduler and procedural comparisons exist. Fresh frozen physical comparisons at matched budgets and receiver information gain remain open. |
+| **C4: implicit handling of failures** | Stale precision, radio loss and provenance are modeled. Whole physical failure grids and sealed validation remain open. |
+
+The building and rubble come from procedural MuJoCo collapse simulation; live
+thermal damage releases structural welds. Regional distributed missions rerasterize
+geometry and preserve compatible factors across map epochs. Per-robot numeric
+arenas and the live routing service have component memory accounting; whole-robot
+RAM and hardware cycle calibration are not complete. The deployed ARM target is
+QEMU MPS2 Cortex-M4, with persistent UART routing requests, rather than a full robot
+firmware image. ESP32 and physical-board deployment are not implemented here.
+
+## Running from source
+
 
 Everything below runs from the repo root against the project venv (Python 3.12).
 

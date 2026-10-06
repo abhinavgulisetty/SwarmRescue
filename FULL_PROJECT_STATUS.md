@@ -465,3 +465,29 @@ Two additional eight-robot physical runs pass with identical behavior and no
 extra airtime where complete source coverage is already present. The full suite
 has 658 passes and one optional ARM skip; runtime Ruff passes. Defaults remain
 unchanged. See [the measured retry tradeoff](docs/range-transport.md).
+
+## Standalone deployment and live ARM routing — 2026-10-06
+
+Version 0.2.0 installs outside the checkout with packaged C/linker assets, an
+exact hashed dependency lock, a health check and an executable mission launcher.
+Installed missions fingerprint and archive actual shipped sources independently
+of working-directory Git state. The local deployment records wheel, installed
+source, lock and executable hashes. No Git push, remote publication or physical
+board flashing was performed.
+
+One or two robots can now use private persistent Cortex-M4 routing workers during
+physical missions. Bounded framed UART requests carry regional integer models;
+the firmware returns the full field and actions, without a host solver fallback.
+Bindings survive geometry replacement. The linked routing service reserves
+118,800 bytes including a 16 KiB stack reservation; this is not whole-robot RAM.
+Inference, sensors, assignment and fine geometry remain on the host. RPC wall time
+is emulator/transport time, not measured hardware cycles.
+
+All 682 regression tests and runtime Ruff pass with fresh ARM execution enabled.
+The installed tactical mission and firmware replay pass; an installed eight-robot
+mission reaches all sites with two firmware workers and matching archived source
+identity. Matched deployment comparisons and release artifacts are described in
+[deployment](docs/deployment.md) and [live firmware](docs/live-firmware.md).
+The remaining scientific and whole-system gates in
+[COMPLETION_GATES.md](COMPLETION_GATES.md) remain open. No revised completion
+percentage or full research-project completion is claimed.
