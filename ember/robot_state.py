@@ -43,6 +43,7 @@ class RobotState:
     queue: deque[GaussianPacket] = field(default_factory=deque, init=False)
     seen_factors: set[tuple[int, int, int]] = field(default_factory=set, init=False)
     routing: LogQ16Solution | None = field(default=None, init=False)
+    routing_backend: object | None = field(default=None, init=False, repr=False)
     sensor_state: dict[str, float] = field(default_factory=dict, init=False)
     deadline_misses: int = field(default=0, init=False)
     inference_sweeps: int = field(default=0, init=False)
@@ -291,7 +292,9 @@ class RobotState:
         previous_used = self.arena.used
         self.arena.used = self._routing_offset
         try:
-            if native:
+            if self.routing_backend is not None:
+                self.routing = self.routing_backend.solve(model, arena=self.arena)
+            elif native:
                 from mcu.native_log_lmdp import solve_native_log_q16
 
                 self.routing = solve_native_log_q16(model, arena=self.arena)

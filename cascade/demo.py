@@ -18,9 +18,11 @@ itself in a 0.25 m gap sixteen waypoints in.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
+from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field, replace
 from itertools import pairwise
 from pathlib import Path
@@ -397,6 +399,14 @@ class DemoResult:
     preserved_factors: int = 0
     peer_factors: int = 0
     numeric_arena_high_water_bytes: int = 0
+    firmware_robots: int = 0
+    firmware_requests: int = 0
+    firmware_transport_bytes: int = 0
+    firmware_wall_time_s: float = 0.0
+    firmware_platform: str | None = None
+    firmware_service_ram_bytes: int = 0
+    firmware_image_sha256: str | None = None
+    firmware_emulator: str | None = None
     analytical_deadline_misses: int = 0
     repaired_spawns: int = 0
     planning_height_limit_m: float | None = None
@@ -635,7 +645,16 @@ def run_demo(
     range_source_target: int = 0,
     sensing_interval_s: float = 0.0,
     hazard_switch_min_gain: float = 0.15,
+    routing_backends: tuple = (),
 ) -> DemoResult:
+    if routing_backends and (
+        not distributed_physical
+        or not region_cells
+        or len(routing_backends) > min(2, n_robots)
+    ):
+        raise ValueError(
+            "live firmware requires distributed regional mode and at most two robots"
+        )
     if live_disaster and n_robots < 3:
         raise ValueError("live autonomous search requires at least three robots")
     if distributed_physical and not live_disaster:
@@ -822,6 +841,7 @@ def run_demo(
             _trail_surface_positions(start_positions, swarm),
             loss_seed=int(stage_rng(seed, "radio_loss").integers(0, 2**63)),
             latest_evidence=latest_evidence,
+            routing_backends=routing_backends,
             **({"region_cells": region_cells} if region_cells else {}),
         )
         if distributed_physical
@@ -1435,6 +1455,21 @@ def run_demo(
         hazard_only_replans=hazard_only_replans,
         hazard_switch_min_gain=hazard_switch_min_gain,
         hazard_switches_suppressed=hazard_switches_suppressed,
+        firmware_image_sha256=routing_backends[0].image_sha256
+        if routing_backends
+        else None,
+        firmware_emulator=routing_backends[0].metadata.get("emulator")
+        if routing_backends
+        else None,
+        firmware_robots=len(routing_backends),
+        firmware_requests=sum(b.requests for b in routing_backends),
+        firmware_transport_bytes=sum(b.transport_bytes for b in routing_backends),
+        firmware_wall_time_s=sum(b.wall_time_s for b in routing_backends),
+        firmware_platform=routing_backends[0].platform if routing_backends else None,
+        firmware_service_ram_bytes=max(
+            (b.metadata.get("kernel_service_ram_bytes", 0) for b in routing_backends),
+            default=0,
+        ),
         range_gbp=range_gbp,
         range_radio_enabled=range_radio,
         range_radio_bytes=search_result.range_radio_stats.bytes_air
@@ -2324,6 +2359,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cascade.demo", description=__doc__)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument(
+        "--firmware-robots",
+        type=int,
+        default=0,
+        help="run integer planners for 1..2 robots in a live firmware service",
+    )
+    parser.add_argument("--firmware-image", type=Path)
+    parser.add_argument("--firmware-platform", choices=("qemu", "host"), default="qemu")
+    parser.add_argument("--firmware-tool-root", type=Path)
+
+    parser.add_argument(
         "--hazard-switch-min-gain",
         type=float,
         default=0.15,
@@ -2448,6 +2493,14 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--latest-evidence requires --distributed")
     if args.region_cells < 0 or (args.region_cells and not args.distributed):
         parser.error("--region-cells must be nonnegative and requires --distributed")
+    if not 0 <= args.firmware_robots <= min(2, args.robots):
+        parser.error("--firmware-robots must be in 0..2 and no greater than --robots")
+    if args.firmware_robots and (
+        not args.distributed or not args.region_cells or args.firmware_image is None
+    ):
+        parser.error(
+            "live firmware requires --distributed, --region-cells and --firmware-image"
+        )
     params = compact_demo_params() if args.compact else CascadeParams()
     if args.distributed:
         params = collision_aware_params(params, RobotSpec())
@@ -2459,30 +2512,58 @@ def main(argv: list[str] | None = None) -> int:
             for key, value in vars(args).items()
         },
     }
+    if args.firmware_robots:
+        if not args.firmware_image.is_file():
+            parser.error("firmware image is missing")
+        experiment_config["firmware_image_sha256"] = hashlib.sha256(
+            args.firmware_image.read_bytes()
+        ).hexdigest()
     before = capture_manifest(args.seed, experiment_config, {})
 
-    result = run_demo(
-        seed=args.seed,
-        params=params,
-        out_dir=out_dir,
-        n_robots=args.robots,
-        render=not args.no_render,
-        use_cache=not args.no_cache,
-        fps=args.fps,
-        speed=(1.2 if args.compact else 2.0) if args.speed is None else args.speed,
-        width=(960 if args.compact else 1120) if args.width is None else args.width,
-        height=(865 if args.compact else 700) if args.height is None else args.height,
-        live_disaster=args.live_disaster,
-        distributed_physical=args.distributed,
-        region_cells=args.region_cells,
-        latest_evidence=args.latest_evidence,
-        range_gbp=args.range_gbp,
-        range_radio=args.range_radio,
-        range_max_rounds=args.range_rounds,
-        range_source_target=args.range_target_sources,
-        sensing_interval_s=args.sensing_interval_s,
-        hazard_switch_min_gain=args.hazard_switch_min_gain,
-    )
+    with ExitStack() as resources:
+        from mcu.runtime import FirmwareBackend
+
+        backends = tuple(
+            resources.enter_context(
+                FirmwareBackend(
+                    args.firmware_image,
+                    arm=args.firmware_platform == "qemu",
+                    tool_root=args.firmware_tool_root,
+                )
+            )
+            for _ in range(args.firmware_robots)
+        )
+        result = run_demo(
+            seed=args.seed,
+            params=params,
+            out_dir=out_dir,
+            n_robots=args.robots,
+            render=not args.no_render,
+            use_cache=not args.no_cache,
+            fps=args.fps,
+            speed=(1.2 if args.compact else 2.0) if args.speed is None else args.speed,
+            width=(960 if args.compact else 1120) if args.width is None else args.width,
+            height=(865 if args.compact else 700)
+            if args.height is None
+            else args.height,
+            live_disaster=args.live_disaster,
+            distributed_physical=args.distributed,
+            region_cells=args.region_cells,
+            latest_evidence=args.latest_evidence,
+            range_gbp=args.range_gbp,
+            range_radio=args.range_radio,
+            range_max_rounds=args.range_rounds,
+            range_source_target=args.range_target_sources,
+            sensing_interval_s=args.sensing_interval_s,
+            hazard_switch_min_gain=args.hazard_switch_min_gain,
+            routing_backends=backends,
+        )
+    if (
+        args.firmware_robots
+        and hashlib.sha256(args.firmware_image.read_bytes()).hexdigest()
+        != experiment_config["firmware_image_sha256"]
+    ):
+        raise RuntimeError("firmware image changed during physical validation")
     print(result.report())
     report_path = args.report or (
         out_dir / f"seed{args.seed}_distributed.json" if args.distributed else None
@@ -2520,6 +2601,8 @@ def main(argv: list[str] | None = None) -> int:
                     "embedded_timing_calibrated": False,
                     "whole_phase1_acceptance_gate_met": False,
                     "native_host_integer_routing": args.distributed,
+                    "live_firmware_routing": bool(args.firmware_robots),
+                    "whole_robot_firmware": False,
                     "whole_embedded_memory_gate_met": False,
                     "host_fine_geometry_refinement": bool(args.region_cells),
                 },

@@ -217,17 +217,21 @@ class PhysicalRobotTeam:
         packet_budget_bytes=128,
         radio_config=None,
         latest_evidence=False,
+        routing_backends=(),
     ):
         positions = np.asarray(positions_m, dtype=float)
         if positions.ndim != 2 or positions.shape[1] != 3 or len(positions) < 2:
             raise ValueError("physical team requires at least two 3D positions")
+        self.routing_backends = tuple(routing_backends)
+        if len(self.routing_backends) > len(positions):
+            raise ValueError("at most one routing backend is allowed per robot")
         self.graph = graph
         self.map_epoch = 0
         self.latest_evidence = latest_evidence
         self.packet_budget_bytes = packet_budget_bytes
         self.radio = RadioMedium(positions, loss_seed=loss_seed, config=radio_config)
         self.robots = tuple(
-            self._new_robot(i, point) for i, point in enumerate(positions)
+            self._configured_robot(i, point) for i, point in enumerate(positions)
         )
         self.radio_stats = RadioStats()
         self.geometry_revisions = 0
@@ -235,6 +239,12 @@ class PhysicalRobotTeam:
         self.scans = ()
         self.max_wall_count = 0
         self.arena_high_water_bytes = 0
+
+    def _configured_robot(self, robot_id, position):
+        robot = self._new_robot(robot_id, position)
+        if robot_id < len(self.routing_backends):
+            robot.routing_backend = self.routing_backends[robot_id]
+        return robot
 
     def _new_robot(self, robot_id, position):
         # Numeric GBP state plus reusable integer routing buffers and alignment.
@@ -472,7 +482,7 @@ class PhysicalRobotTeam:
         try:
             self.graph = graph
             robots = tuple(
-                self._new_robot(r.robot_id, r.position_m) for r in self.robots
+                self._configured_robot(r.robot_id, r.position_m) for r in self.robots
             )
         finally:
             self.graph = previous_graph

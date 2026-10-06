@@ -17,6 +17,8 @@ COMMANDS = {
     "evaluate": "eval.procedural",
     "range-evaluation": "eval.range_delivery",
     "firmware-replay": "eval.firmware_replay",
+    "firmware-build": "mcu.runtime",
+    "deploy": "swarmrescue.deploy",
 }
 
 
@@ -70,6 +72,10 @@ def doctor():
             "deadline.h",
             "replay/replay.c",
             "replay/mps2.ld",
+            "runtime/service.c",
+            "runtime/host.c",
+            "runtime/mps2.c",
+            "runtime/mps2.ld",
         )
         missing = [name for name in required if not (root / name).is_file()]
         if missing:
