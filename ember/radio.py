@@ -10,11 +10,13 @@ from __future__ import annotations
 import hashlib
 import math
 import struct
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
 
 from ember.comms import MAX_PAYLOAD_BYTES, GaussianPacket
+from ember.range_comms import RangePacket
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,7 +85,7 @@ class RadioStats:
 
 @dataclass(frozen=True, slots=True)
 class FloodResult:
-    received: tuple[tuple[GaussianPacket, ...], ...]
+    received: tuple[tuple[GaussianPacket | RangePacket, ...], ...]
     stats: RadioStats
     rounds: int
 
@@ -211,17 +213,25 @@ class RadioMedium:
     def flood_packet(
         self,
         origin: int,
-        packet: GaussianPacket,
+        packet: GaussianPacket | RangePacket,
         rng: np.random.Generator,
+        *,
+        decoder: Callable[
+            [bytes], GaussianPacket | RangePacket
+        ] = GaussianPacket.decode,
     ) -> FloodResult:
         """Flood one packet with per-node deduplication and TTL-limited relays."""
 
         self._check_node(origin)
-        received: list[list[GaussianPacket]] = [[] for _ in range(self.n_nodes)]
+        # Validate the selected wire format before reserving slots/transmitting.
+        decoder(packet.encode())
+        received: list[list[GaussianPacket | RangePacket]] = [
+            [] for _ in range(self.n_nodes)
+        ]
         received[origin].append(packet)
         seen: list[set[tuple[int, int, int]]] = [set() for _ in range(self.n_nodes)]
         seen[origin].add((packet.sender, packet.sequence, packet.map_epoch))
-        frontier: list[tuple[int, GaussianPacket]] = [(origin, packet)]
+        frontier: list[tuple[int, GaussianPacket | RangePacket]] = [(origin, packet)]
         total = RadioStats()
         rounds = 0
         while frontier:
@@ -237,10 +247,10 @@ class RadioMedium:
             )
             deliveries, stats = self.transmit(transmissions, rng)
             total += stats
-            next_frontier: list[tuple[int, GaussianPacket]] = []
+            next_frontier: list[tuple[int, GaussianPacket | RangePacket]] = []
             duplicates = 0
             for delivery in deliveries:
-                message = GaussianPacket.decode(delivery.payload)
+                message = decoder(delivery.payload)
                 key = (message.sender, message.sequence, message.map_epoch)
                 if key in seen[delivery.receiver]:
                     duplicates += 1

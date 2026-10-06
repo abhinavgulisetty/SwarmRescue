@@ -28,7 +28,7 @@ def _q16(values: np.ndarray) -> np.ndarray:
 
 @dataclass(frozen=True, slots=True)
 class GaussianPacket:
-    """The only radio message: canonical Gaussian updates plus provenance."""
+    """Hazard radio message: canonical Gaussian updates plus provenance."""
 
     sender: int
     sequence: int

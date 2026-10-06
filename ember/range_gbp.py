@@ -96,6 +96,7 @@ class RangeFactorGBP:
         self.message_information = np.zeros((n, n_beacons, 2, dimension))
         self.robot_mean = anchors.copy()
         self.beacon_mean = np.zeros((n_beacons, dimension))
+        self.beacon_prior_mean = np.zeros((n_beacons, dimension))
         self._seeded = False
         self.replaced = self.stale = 0
 
@@ -175,6 +176,8 @@ class RangeFactorGBP:
             )
             if not self._seeded:
                 self.beacon_mean[beacon] = np.linalg.lstsq(delta, rhs, rcond=None)[0]
+        if not self._seeded:
+            self.beacon_prior_mean[:] = self.beacon_mean
         self._seeded = True
 
     def _linear_solve(self, directions, offsets, seed, factor_variance=None):
@@ -282,7 +285,7 @@ class RangeFactorGBP:
 
     def solve(self):
         self._initialize()
-        seed = self.beacon_mean.copy()
+        seed = self.beacon_prior_mean.copy()
         total_sweeps, converged = 0, False
         for _linearization in range(1, self.config.max_linearizations + 1):
             poses, beacons = self.robot_mean.copy(), self.beacon_mean.copy()
