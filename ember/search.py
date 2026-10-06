@@ -31,6 +31,8 @@ class CooperativeSearchResult:
     localization_retained_numeric_bytes: int = 0
     range_radio_enabled: bool = False
     range_radio_rounds: int = 0
+    range_source_target: int = 0
+    range_coverage_target_met: bool | None = None
     range_radio_stats: RadioStats = field(default_factory=RadioStats)
     range_receiver_factor_counts: tuple[int, ...] = ()
     localization_team_numeric_bytes: int = 0
@@ -122,6 +124,7 @@ def localize_and_assign(
     pose_covariance_m2: np.ndarray | None = None,
     range_radio: RadioMedium | None = None,
     range_max_rounds: int = 3,
+    range_source_target: int | None = None,
 ) -> CooperativeSearchResult:
     """Infer receiver targets, then coordinate a common one-to-one assignment.
 
@@ -135,6 +138,8 @@ def localize_and_assign(
         raise ValueError("at least three 2-D robot positions are required")
     if survivors.shape != (robots.shape[0], 2):
         raise ValueError("this search slice requires one survivor per robot")
+    if range_source_target is not None and range_radio is None:
+        raise ValueError("source coverage target requires range radio")
     if range_radio is not None and not range_gbp:
         raise ValueError("range radio requires range GBP")
     if pose_covariance_m2 is not None and not range_gbp:
@@ -171,7 +176,12 @@ def localize_and_assign(
         estimates = [estimate.position_m for estimate in solution.estimates]
         covariances = [estimate.covariance_m2 for estimate in solution.estimates]
     transport = (
-        team.exchange(np.asarray(readings).T, rng, max_rounds=range_max_rounds)
+        team.exchange(
+            np.asarray(readings).T,
+            rng,
+            max_rounds=range_max_rounds,
+            target_sources=range_source_target,
+        )
         if team
         else None
     )
@@ -249,6 +259,8 @@ def localize_and_assign(
         else 0,
         range_radio_enabled=transport is not None,
         range_radio_rounds=transport.rounds if transport else 0,
+        range_source_target=transport.source_target if transport else 0,
+        range_coverage_target_met=transport.coverage_target_met if transport else None,
         range_radio_stats=transport.radio_stats if transport else RadioStats(),
         range_receiver_factor_counts=transport.factor_counts if transport else (),
         receiver_estimated_positions_m=receiver_positions,

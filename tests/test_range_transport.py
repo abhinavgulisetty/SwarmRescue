@@ -313,3 +313,88 @@ def test_retry_continues_when_received_anchor_count_is_sufficient_but_collinear(
     result = team.exchange(readings, np.random.default_rng(7), max_rounds=3)
     assert result.available and result.rounds == 2
     assert result.factor_counts == (4, 4, 4, 4)
+
+
+def test_source_target_uses_retries_to_improve_evidence_without_new_ids(monkeypatch):
+    outcomes = []
+    for target in (3, 4):
+        team, _, _ = world(beacons=1)
+        poses = team.receivers[0].anchors
+        readings = sample_rssi(
+            poses,
+            np.array([2, 3]),
+            np.random.default_rng(7),
+            config=RSSIConfig(noise_std_db=0),
+        )[:, None]
+        original = team.radio.transmit
+        state = {"blocked": False}
+
+        def lose_fourth_once(frames, rng, original=original, state=state):
+            deliveries, stats = original(frames, rng)
+            if (
+                not state["blocked"]
+                and RangePacket.decode(frames[0].payload).sender == 3
+            ):
+                state["blocked"] = True
+                return (), replace(stats, delivered=0, randomly_dropped=stats.delivered)
+            return deliveries, stats
+
+        monkeypatch.setattr(team.radio, "transmit", lose_fourth_once)
+        result = team.exchange(
+            readings, np.random.default_rng(7), target_sources=target
+        )
+        assert result.available and result.coverage_target_met
+        outcomes.append(result)
+        assert np.all(
+            team.receivers[0].sequences[team.receivers[0].sequences >= 0] == 0
+        )
+    assert outcomes[0].rounds == 1 and outcomes[1].rounds == 2
+    assert outcomes[0].factor_counts == (3, 3, 3, 4)
+    assert outcomes[1].factor_counts == (4, 4, 4, 4)
+    assert outcomes[1].radio_stats.bytes_air > outcomes[0].radio_stats.bytes_air
+    assert np.trace(
+        outcomes[1].solutions[0].estimates[0].covariance_m2
+    ) < 0.99 * np.trace(outcomes[0].solutions[0].estimates[0].covariance_m2)
+
+
+def test_soft_source_target_reports_budget_exhaustion_separately_from_localization():
+    walls = np.zeros((4, 4), int)
+    walls[3, :3] = 100
+    team, readings, _ = world(walls=walls, beacons=1)
+    result = team.exchange(
+        readings, np.random.default_rng(7), target_sources=4, max_rounds=2
+    )
+    assert result.available and not result.coverage_target_met
+    assert result.source_target == 4 and result.rounds == 2
+    assert result.factor_counts == (3, 3, 3, 4)
+
+
+@pytest.mark.parametrize("target", [0, 2, 5, True])
+def test_invalid_source_target_fails_before_radio_or_evidence(target):
+    team, readings, _ = world()
+    with pytest.raises(ValueError):
+        team.exchange(readings, np.random.default_rng(7), target_sources=target)
+    assert team.radio._next_flood_slot == 0
+    assert not np.any(team.next_sequence)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--range-target-sources", "6"],
+        [
+            "--range-target-sources",
+            "2",
+            "--range-radio",
+            "--range-gbp",
+            "--distributed",
+            "--live-disaster",
+        ],
+    ],
+)
+def test_cli_rejects_unsupported_source_target(args):
+    from cascade.demo import main
+
+    with pytest.raises(SystemExit) as result:
+        main(args)
+    assert result.value.code == 2

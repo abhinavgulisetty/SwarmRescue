@@ -68,3 +68,44 @@ Mission source archive SHA-256 values:
 - `outputs/demo/range-transport/seed42-shared.json`: `3af1b92f355c5ac24d3c440884e35797370e3668e5be43109b8993db670b5a74`.
 - `outputs/demo/range-transport/seed7-radio.json`: `97a2ffa20ccbe4741ecb6f3be750ac346a21241305c7aae3c90c581cd33de24a`.
 - `outputs/demo/range-transport/seed7-shared.json`: `cbcf83676a4899312e770ed3d4fe1c073cd73c96895b4830214d5929f9b9a3f5`.
+
+
+## Adaptive source-coverage retry target
+
+`--range-target-sources 6` (eight-robot missions) asks every receiver to collect at least six independent sources for each beacon before stopping retries. The default stays three sources plus full-rank geometry. This is a soft quality target bounded by `--range-rounds`; if the target is unmet but the minimum inferable geometry is present, the solver can still localize and reports `range_coverage_target_met=false`. It does not misreport that outcome as complete coverage. The receiver minimum is always dimension + 1; retries preserve existing source-factor IDs.
+
+This simple policy addresses the first experiment's high-loss accuracy degradation by spending additional radio traffic where evidence is sparse. It does not change the RSSI noise draw, insert peer posteriors, or average retransmissions as new observations. It is not entropy-optimal scheduling or an equal-byte-budget improvement.
+
+Fresh paired grids compare targets three and six over the same 120 world/loss combinations (240 team runs total). Both retain 20/20 available teams and 160/160 available receivers at every tested rate through 75%, and zero available receivers under 100% loss. No-loss results exactly match complete-factor GBP.
+
+| Packet error | Mean error: target 3 m | Mean error: target 6 m | Air bytes: target 3 | Air bytes: target 6 | Rounds: target 3 | Rounds: target 6 | Target 6 met |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0% | 0.192447 | 0.192447 | 4416.00 | 4416.00 | 1.00 | 1.00 | 20/20 |
+| 10% | 0.192447 | 0.192447 | 4416.00 | 4416.00 | 1.00 | 1.00 | 20/20 |
+| 25% | 0.192447 | 0.192447 | 4409.10 | 4409.10 | 1.00 | 1.00 | 20/20 |
+| 50% | 0.194287 | 0.194287 | 3998.55 | 3998.55 | 1.00 | 1.00 | 20/20 |
+| 75% | 0.281545 | 0.209265 | 2484.00 | 5827.05 | 1.10 | 2.50 | 18/20 |
+| 100% | Unavailable | Unavailable | 1656.00 | 1656.00 | 3.00 | 3.00 | 0/20 |
+
+At 75% loss, mean error decreases 25.7%, from 0.281545 m to 0.209265 m, while airtime rises 2.35×, from 2,484 to 5,827 bytes. The six-source target is fully met in 18/20 cases within three rounds; the remaining two still localize and explicitly report target shortfall. Coverage rises from 94.453% to 96.016%. Maximum coordinate difference from complete-factor estimates decreases from 2.327 m to 0.819 m. Lower-loss cases incur no extra airtime in this grid.
+
+Every paired world improves at 75% loss (20 wins, no ties or losses). The world mean-error difference is −0.072280 m, with a paired-world bootstrap 95% interval [−0.096281, −0.051613] m. This interval uses 10,000 resamples with NumPy RNG seed 20261006 of the twenty per-world mean-error differences from the raw reports. It describes these disclosed development worlds, not held-out survival, general radio Pareto efficiency, measured latency, or calibrated sensors. Defaults remain unchanged.
+
+Both new eight-robot seed-42 physical runs (targets three and six) pass with exactly matching arrival arrays and search exposure: last arrival 36.412 s, search exposure proxy 21.708731, total radio 48,064 bytes including 4,416 localization bytes, one localization round and full source coverage. All receivers already hear all eight sources, so the stricter target costs no additional airtime in this layout.
+
+The final full suite has **658 passes and one optional ARM emulator skip**; runtime Ruff passes. New tests cover information gained from additional independent sources, exact factor-ID retention under retries, bounded target shortfall, and invalid targets before any radio/evidence mutation. The higher target remains opt-in; whole embedded RAM/timing, known pose-prior transport, assignment negotiation, pose/hazard coupling, deployed sensors and evacuation gates stay open.
+
+```bash
+.venv/bin/python -m eval.range_delivery --world-seeds 0:19 --loss-rates 0,0.1,0.25,0.5,0.75,1 --target-sources 3 --out outputs/eval/range-quality-3.json
+.venv/bin/python -m eval.range_delivery --world-seeds 0:19 --loss-rates 0,0.1,0.25,0.5,0.75,1 --target-sources 6 --out outputs/eval/range-quality-6.json
+.venv/bin/python -m cascade.demo --seed 42 --robots 8 --compact --live-disaster --distributed --region-cells 4 --latest-evidence --range-gbp --range-radio --range-target-sources 6 --no-render --report outputs/demo/range-quality/replay.json
+```
+
+All four final reports and bundles match. They share precommit SHA `3c8b1f6ccdc27d747b27b4dd21836fb2edd55fce` and dirty-source fingerprint `3f26b79bae0fc86c52e34e2cdc9e8aeaaa55093d3a69ca2005c629acbdcceb13`.
+
+Final quality-experiment source archive SHA-256 values:
+
+- `outputs/eval/range-quality-3.json`: `6b06df43807b339e621a8833c893e6af2fc5202df23f6d1976915f35af45a5f4`.
+- `outputs/eval/range-quality-6.json`: `be2d6df15cbc6d31b6445e521b0e02196f6ac524261c21d79cf53ec07e4c60d8`.
+- `outputs/demo/range-quality/seed42-target3.json`: `aba4bdb587d856f0482b6f771abae824aa2b90d4bd82e7e1731bb86335fe5a72`.
+- `outputs/demo/range-quality/seed42-target6.json`: `611b0aef55efda5e14753d964805e50e0e62292029c06aa78e18d66786ce7845`.

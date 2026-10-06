@@ -597,7 +597,7 @@ and runtime Ruff pass. See [firmware emulation](docs/firmware-emulation.md) and
 `--range-gbp --range-radio` now sends typed RSSI packets through the physical
 radio and builds independent receiver factor tables. Replay/epoch checks and
 bounded retries preserve source identity; assignments use each robot's own
-estimate, with host-coordinated matching. Six physical pairs reach every site
+estimate, with host-coordinated matching. Six physical runs across three pairs reach every site
 with unchanged trajectories/exposure; localization airtime is now included.
 The 120-case loss grid localizes every team through 75% packet error and
 reports full partitions unavailable, without a shared-data fallback. High-loss
@@ -605,3 +605,15 @@ error still rises. The full suite has 650 passes and one optional ARM emulator
 skip; runtime Ruff passes. Known pose priors, bid transport, temporal pose/hazard
 coupling, whole firmware/resources and evacuation remain open. See the
 [range transport report](docs/range-transport.md).
+
+
+### Source-coverage retry tradeoff — 2026-10-06
+
+`--range-target-sources 6` can improve high-loss localization by collecting more
+independent source factors within the same retry cap. In paired twenty-world
+cases at 75% packet error, mean error falls 25.7%, at 2.35× airtime; all teams
+still localize, while two explicitly report the soft coverage target unmet.
+Two additional eight-robot physical runs pass with identical behavior and no
+extra airtime where complete source coverage is already present. The full suite
+has 658 passes and one optional ARM skip; runtime Ruff passes. Defaults remain
+unchanged. See [the measured retry tradeoff](docs/range-transport.md).

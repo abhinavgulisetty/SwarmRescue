@@ -17,7 +17,7 @@ from ember.range_team import RangeLocalizationTeam
 from eval.harness import parse_seed_spec
 
 
-def run_case(seed, loss, *, max_rounds=3):
+def run_case(seed, loss, *, max_rounds=3, target_sources=None):
     world_rng = np.random.default_rng(seed)
     anchors = np.array(
         [[0, 0], [12, 0], [0, 12], [12, 12], [6, 0], [0, 6], [12, 6], [6, 12]], float
@@ -46,7 +46,9 @@ def run_case(seed, loss, *, max_rounds=3):
         measured, loss_seed=seed + 8192, config=RadioConfig(packet_error_rate=loss)
     )
     team = RangeLocalizationTeam(measured, covariance, 8, radio, sensor_config=config)
-    result = team.exchange(readings, rng, max_rounds=max_rounds)
+    result = team.exchange(
+        readings, rng, max_rounds=max_rounds, target_sources=target_sources
+    )
     errors, covered, positions = [], [], []
     for solution in result.solutions:
         if solution is None or not solution.converged:
@@ -71,6 +73,8 @@ def run_case(seed, loss, *, max_rounds=3):
             solution is not None and solution.converged for solution in result.solutions
         ),
         "rounds": result.rounds,
+        "source_target": result.source_target,
+        "coverage_target_met": result.coverage_target_met,
         "factor_counts": result.factor_counts,
         "radio_stats": asdict(result.radio_stats),
         "failures": result.failures,
@@ -90,6 +94,7 @@ def main(argv=None):
     parser.add_argument("--world-seeds", default="0:19")
     parser.add_argument("--loss-rates", default="0,0.1,0.25,0.5,1")
     parser.add_argument("--rounds", type=int, default=3)
+    parser.add_argument("--target-sources", type=int, default=3)
     parser.add_argument(
         "--out", type=Path, default=Path("outputs/eval/range-delivery.json")
     )
@@ -105,12 +110,15 @@ def main(argv=None):
         not np.isfinite(loss) or not 0 <= loss <= 1 for loss in losses
     ):
         parser.error("loss rates must be finite in [0,1]")
+    if not 3 <= args.target_sources <= 8:
+        parser.error("target sources must be in 3..8")
     if not 1 <= args.rounds <= 8:
         parser.error("rounds must be in 1..8")
     config = {
         "world_seeds": seeds,
         "packet_error_rates": losses,
         "max_rounds": args.rounds,
+        "target_sources": args.target_sources,
         "robots": 8,
         "beacons": 8,
         "pose_std_m": 0.05,
@@ -120,7 +128,14 @@ def main(argv=None):
     cases = []
     for seed in seeds:
         for loss in losses:
-            cases.append(run_case(seed, loss, max_rounds=args.rounds))
+            cases.append(
+                run_case(
+                    seed,
+                    loss,
+                    max_rounds=args.rounds,
+                    target_sources=args.target_sources,
+                )
+            )
         if len(cases) % 25 == 0:
             print(f"completed {len(cases)} radio cases", flush=True)
     summary = []
@@ -132,6 +147,9 @@ def main(argv=None):
                 "packet_error_rate": loss,
                 "cases": len(selected),
                 "available_teams": sum(case["available"] for case in selected),
+                "coverage_target_met_teams": sum(
+                    case["coverage_target_met"] for case in selected
+                ),
                 "available_receivers": sum(
                     case["available_receivers"] for case in selected
                 ),

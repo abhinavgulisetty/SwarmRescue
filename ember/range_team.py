@@ -22,6 +22,8 @@ class RangeTeamResult:
     factor_counts: tuple[int, ...]
     receiver_numeric_bytes: int
     team_numeric_bytes: int
+    source_target: int
+    coverage_target_met: bool
 
     @property
     def available(self):
@@ -119,22 +121,30 @@ class RangeLocalizationTeam:
             )
         return changed
 
-    def _coverage_ready(self):
+    def _coverage_ready(self, target_sources):
         dimension = self.receivers[0].anchors.shape[1]
         for engine in self.receivers:
             for beacon in range(engine.ranges.shape[1]):
                 sources = np.flatnonzero(engine.sequences[:, beacon] >= 0)
-                if len(sources) < dimension + 1:
+                if len(sources) < target_sources:
                     return False
                 anchors = engine.anchors[sources]
                 if np.linalg.matrix_rank(anchors[1:] - anchors[0]) < dimension:
                     return False
         return True
 
-    def exchange(self, readings_dbm, rng, *, max_rounds=3):
+    def exchange(self, readings_dbm, rng, *, max_rounds=3, target_sources=None):
         max_rounds = uint(max_rounds, 8, "retransmission rounds")
         if max_rounds < 1:
             raise ValueError("at least one transmission round is required")
+        dimension = self.receivers[0].anchors.shape[1]
+        target_sources = (
+            dimension + 1
+            if target_sources is None
+            else uint(target_sources, len(self.receivers), "source coverage target")
+        )
+        if target_sources < dimension + 1:
+            raise ValueError("source target requires at least dimension + 1 anchors")
         readings = np.asarray(readings_dbm, float)
         n, b = self.receivers[0].ranges.shape
         if readings.shape != (n, b) or not np.all(np.isfinite(readings)):
@@ -170,7 +180,7 @@ class RangeLocalizationTeam:
                             continue
                         for delivered in received:
                             self.ingest(receiver, delivered)
-            if self._coverage_ready():
+            if self._coverage_ready(target_sources):
                 break
         self.radio_stats += stats
         solutions, failures = [], []
@@ -196,4 +206,6 @@ class RangeLocalizationTeam:
             ),
             max(numeric),
             sum(numeric) + self.next_sequence.nbytes,
+            target_sources,
+            self._coverage_ready(target_sources),
         )

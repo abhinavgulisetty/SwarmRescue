@@ -379,6 +379,8 @@ class DemoResult:
     range_radio_enabled: bool = False
     range_radio_bytes: int = 0
     range_radio_rounds: int = 0
+    range_source_target: int = 0
+    range_coverage_target_met: bool | None = None
     range_receiver_factor_counts: tuple[int, ...] = ()
     localization_team_numeric_bytes: int = 0
     range_gbp_converged: bool | None = None
@@ -630,6 +632,7 @@ def run_demo(
     range_gbp: bool = False,
     range_radio: bool = False,
     range_max_rounds: int = 3,
+    range_source_target: int = 0,
     sensing_interval_s: float = 0.0,
     hazard_switch_min_gain: float = 0.15,
 ) -> DemoResult:
@@ -639,6 +642,15 @@ def run_demo(
         raise ValueError("distributed physical mode requires a live-disaster mission")
     if region_cells < 0 or (region_cells and not distributed_physical):
         raise ValueError("regional architecture requires distributed physical mode")
+    if (
+        not isinstance(range_source_target, int)
+        or isinstance(range_source_target, bool)
+        or (range_source_target != 0 and not 3 <= range_source_target <= n_robots)
+        or (range_source_target and not range_radio)
+    ):
+        raise ValueError(
+            "range source target must be 0 or 3..robot count and requires range radio"
+        )
     if range_radio and not range_gbp:
         raise ValueError("range radio requires range GBP")
     if (
@@ -955,6 +967,7 @@ def run_demo(
                         range_gbp=range_gbp,
                         range_radio=physical_team.radio if range_radio else None,
                         range_max_rounds=range_max_rounds,
+                        range_source_target=range_source_target or None,
                     )
                     if range_radio:
                         physical_team.radio_stats += search_result.range_radio_stats
@@ -1428,6 +1441,10 @@ def run_demo(
         if search_result
         else 0,
         range_radio_rounds=search_result.range_radio_rounds if search_result else 0,
+        range_source_target=search_result.range_source_target if search_result else 0,
+        range_coverage_target_met=search_result.range_coverage_target_met
+        if search_result
+        else None,
         range_receiver_factor_counts=search_result.range_receiver_factor_counts
         if search_result
         else (),
@@ -2327,6 +2344,13 @@ def main(argv: list[str] | None = None) -> int:
         "requires --range-gbp",
     )
     parser.add_argument(
+        "--range-target-sources",
+        type=int,
+        default=0,
+        help="soft receiver evidence target before retry stops; "
+        "0 uses three sources; requires --range-radio",
+    )
+    parser.add_argument(
         "--range-rounds",
         type=int,
         default=3,
@@ -2406,6 +2430,14 @@ def main(argv: list[str] | None = None) -> int:
         or not 0 <= args.hazard_switch_min_gain < 1
     ):
         parser.error("--hazard-switch-min-gain must be finite in [0, 1)")
+    if (
+        args.range_target_sources != 0
+        and not 3 <= args.range_target_sources <= args.robots
+    ) or (args.range_target_sources and not args.range_radio):
+        parser.error(
+            "--range-target-sources must be 0 or 3..robot count "
+            "and requires --range-radio"
+        )
     if args.range_radio and not args.range_gbp:
         parser.error("--range-radio requires --range-gbp")
     if not 1 <= args.range_rounds <= 8:
@@ -2447,6 +2479,7 @@ def main(argv: list[str] | None = None) -> int:
         range_gbp=args.range_gbp,
         range_radio=args.range_radio,
         range_max_rounds=args.range_rounds,
+        range_source_target=args.range_target_sources,
         sensing_interval_s=args.sensing_interval_s,
         hazard_switch_min_gain=args.hazard_switch_min_gain,
     )

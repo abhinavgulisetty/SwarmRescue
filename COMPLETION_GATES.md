@@ -16,6 +16,12 @@ The research project is **not fully complete**. The September 76% score was a hi
 | Calibrated survival and patient evacuation | Procedural modeled evaluation; physical missions reach assigned sites | Validate tenability assumptions and implement physical patient extraction/egress |
 | Final sealed validation | Original set already opened; historical replay labeling preserved | Freeze final code/protocol/thresholds before selecting a genuinely unused evaluation set |
 
-The latest full regression run has **650 passes and one optional Cortex-M4 skip** because the temporary ARM tools are absent; runtime Ruff passes. The October 4 archived emulator run remains the ARM execution evidence. Learned speed, real sensor calibration, whole embedded resources, patient evacuation and final scientific validation remain open. No new whole-project completion percentage is assigned.
+The latest full regression run has **658 passes and one optional Cortex-M4 skip** because the temporary ARM tools are absent; runtime Ruff passes. The October 4 archived emulator run remains the ARM execution evidence. Learned speed, real sensor calibration, whole embedded resources, patient evacuation and final scientific validation remain open. No new whole-project completion percentage is assigned.
 
 Detailed evidence: [localization](docs/range-localization.md), [firmware emulation](docs/firmware-emulation.md), [architecture](docs/architecture-experiments.md), [sensing](docs/hazard-sensing.md), and [full historical status](FULL_PROJECT_STATUS.md).
+
+
+Receiver-local range transport is now exercised by eight fresh physical runs and
+source-archived loss grids. An opt-in source-coverage target improves 75%-loss
+mean error by 25.7% using 2.35× airtime. Known pose priors and host matching remain;
+this does not close independent assignment agreement or whole-system timing.
