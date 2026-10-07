@@ -24,9 +24,10 @@ from PIL import Image, ImageDraw
 from cascade.cinema import _connect, _dashed_polyline, _polyline
 from cascade.extract import build_graph, nearest_node, rasterize
 from cascade.hud import _BODY_FONTS, VideoWriter, _font, story_frame
+from cascade.motion import SmoothWaypointDriver, simplify_route
 from cascade.params import TraversabilityParams
 from cascade.render import CameraView, contact_sheet, render_scene, save_png
-from cascade.robot import RobotSpec, WaypointDriver, build_robot
+from cascade.robot import RobotSpec, build_robot
 from ember.evacuation import EvacuationConfig, EvacuationTeam, survivor_bodies
 from ember.geometry_sensing import box_raycasts
 from ember.physical_team import ground_mission_graph
@@ -101,7 +102,10 @@ class Situation:
     def __init__(self, name):
         self.case = CASES[name]
         self.root = ET.Element("mujoco", model=f"case_{name}")
-        ET.SubElement(self.root, "option", timestep="0.004", integrator="implicitfast")
+        ET.SubElement(self.root, "compiler", angle="radian")
+        ET.SubElement(
+            self.root, "option", timestep=str(1 / 600), integrator="implicitfast"
+        )
         visual = ET.SubElement(self.root, "visual")
         ET.SubElement(visual, "global", offwidth="1280", offheight="720")
         ET.SubElement(
@@ -196,7 +200,7 @@ class Situation:
             ET.tostring(self.root, encoding="unicode")
         )
         self.data = mujoco.MjData(self.model)
-        mujoco.mj_step(self.model, self.data, 150)
+        mujoco.mj_step(self.model, self.data, round(0.6 / self.model.opt.timestep))
         self.robot_id = self.model.body("robot0").id
         if name in ("reroute", "no-exit"):
             self.block_id = self.model.geom("g_debris").id
@@ -220,7 +224,7 @@ class Situation:
         if not len(self.route):
             raise RuntimeError("teaching setup has no initial route")
         self.old_route = np.empty((0, 3))
-        self.driver = WaypointDriver(
+        self.driver = SmoothWaypointDriver(
             self.spec,
             self.route,
             arrive_radius_m=0.18,
@@ -242,6 +246,7 @@ class Situation:
         self.initial_robot = self.robot.copy()
         self.initial_patient = self.patient.copy() if self.team else None
         self.occluded_samples = 0
+        self.structural_contact_samples = 0
 
     @property
     def robot(self):
@@ -279,7 +284,7 @@ class Situation:
         snapshot = mujoco.MjModel.from_xml_string(ET.tostring(root, encoding="unicode"))
         data = mujoco.MjData(snapshot)
         mujoco.mj_forward(snapshot, data)
-        params = TraversabilityParams()
+        params = TraversabilityParams(robot_radius_m=0.40)
         grid = rasterize(snapshot, data, (WIDTH_M, DEPTH_M), 2.5, params)
         graph = build_graph(grid, params, snapshot, data)
         return ground_mission_graph(graph, maximum_height_m=0.1)
@@ -294,15 +299,21 @@ class Situation:
             raise RuntimeError("integer case planner did not converge")
         nodes = result.route(origin)
         if not nodes:
+            self.native_route = np.empty((0, 3))
             return np.empty((0, 3))
         route = graph.world_positions()[list(nodes)]
         # Include the measured chassis contact point, not a pose correction.
         start = self.robot.copy()
         start[2] = 0
-        return np.vstack((start, route))
+        self.native_route = np.vstack((start, route))
+        return simplify_route(self.model, self.data, self.native_route)
 
     def stop(self):
-        self.data.ctrl[:] = 0
+        self.driver.pause(
+            self.model,
+            self.data,
+            emergency=self.case.name == "no-exit" and self.outcome == "safe_stop",
+        )
 
     def step(self, elapsed_s):
         name = self.case.name
@@ -382,6 +393,12 @@ class Situation:
         else:
             self.driver.step(self.model, self.data)
         mujoco.mj_step(self.model, self.data)
+        for contact in self.data.contact:
+            names = [self.model.geom(int(g)).name or "" for g in contact.geom]
+            if any("robot0" in n for n in names) and any(
+                n.startswith(("g_wall_", "g_debris")) for n in names
+            ):
+                self.structural_contact_samples += 1
         if self.team:
             self.team.observe(self.data, elapsed_s + self.model.opt.timestep)
             if self.team.done and self.finished_s is None:
@@ -402,6 +419,17 @@ class Situation:
         if not self.trail or np.linalg.norm(point - self.trail[-1]) > 0.07:
             self.trail.append(point)
         entry = {"time_s": round(elapsed_s, 3), "robot_m": robot.tolist()}
+        velocity = np.zeros(6)
+        mujoco.mj_objectVelocity(
+            self.model,
+            self.data,
+            mujoco.mjtObj.mjOBJ_BODY,
+            self.robot_id,
+            velocity,
+            0,
+        )
+        entry["robot_velocity_m_s"] = velocity[3:].tolist()
+        entry["robot_yaw_rate_rad_s"] = float(velocity[2])
         if self.team:
             patient = self.patient
             entry["survivor_m"] = patient.tolist()
@@ -582,12 +610,27 @@ def _project(point, camera, width, height):
     return x, y
 
 
-def run_case(name, out, *, render=True, fps=15, speed=1.5, horizon_s=90):
+def motion_metrics(samples):
+    """Measure planar acceleration and yaw change from physical body velocities."""
+    times = np.array([s["time_s"] for s in samples])
+    dt = np.diff(times)
+    velocities = np.array([s["robot_velocity_m_s"][:2] for s in samples])
+    yaw = np.array([s["robot_yaw_rate_rad_s"] for s in samples])
+    acceleration = np.linalg.norm(np.diff(velocities, axis=0) / dt[:, None], axis=1)
+    yaw_acceleration = np.abs(np.diff(yaw) / dt)
+    return {
+        "sample_rate_hz": 50,
+        "acceleration_p95_m_s2": float(np.quantile(acceleration, 0.95)),
+        "yaw_acceleration_p95_rad_s2": float(np.quantile(yaw_acceleration, 0.95)),
+        "total_turn_rad": float(np.sum(np.abs(yaw[1:]) * dt)),
+    }
+
+
+def run_case(name, out, *, render=True, fps=60, speed=1.0, horizon_s=90):
     scene = Situation(name)
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     screenshots = []
-    next_frame, next_sample = 0.0, 0.0
     with ExitStack() as stack:
         renderer = None
         writer = None
@@ -598,10 +641,11 @@ def run_case(name, out, *, render=True, fps=15, speed=1.5, horizon_s=90):
         for step in range(math.ceil(horizon_s / scene.model.opt.timestep)):
             elapsed_s = step * scene.model.opt.timestep
             scene.step(elapsed_s)
-            if elapsed_s >= next_sample:
+            if step >= round(len(scene.samples) * 0.02 / scene.model.opt.timestep):
                 scene.sample(elapsed_s)
-                next_sample += 0.1
-            if writer and elapsed_s >= next_frame:
+            if writer and step >= round(
+                writer.frames * speed / (fps * scene.model.opt.timestep)
+            ):
                 frame = scene.frame(renderer, elapsed_s)
                 writer.append(frame)
                 middle_event = {
@@ -615,7 +659,6 @@ def run_case(name, out, *, render=True, fps=15, speed=1.5, horizon_s=90):
                     and any(e["event"] == middle_event for e in scene.events)
                 ):
                     screenshots.append(frame)
-                next_frame += speed / fps
             if scene.finished_s is not None and elapsed_s >= scene.finished_s + 3:
                 break
         if writer:
@@ -632,9 +675,17 @@ def run_case(name, out, *, render=True, fps=15, speed=1.5, horizon_s=90):
         "setup": scene.case.setup,
         "expected_outcome": scene.case.expected,
         "outcome": scene.outcome or "timed_out",
-        "accepted": scene.outcome == scene.case.expected,
+        "accepted": (
+            scene.outcome == scene.case.expected
+            and scene.structural_contact_samples == 0
+        ),
         "duration_simulated_s": round(elapsed_s, 3),
         "playback_speed": speed,
+        "render_fps": fps if render else None,
+        "physics_hz": round(1 / scene.model.opt.timestep),
+        "motion_controller": "continuous_lookahead_with_acceleration_limits",
+        "structural_contact_samples": scene.structural_contact_samples,
+        "motion_metrics": motion_metrics(scene.samples),
         "video": f"{name}.mp4" if render else None,
         "thumbnail": f"{name}-start.png" if render else None,
         "events": scene.events,
@@ -650,9 +701,15 @@ def run_case(name, out, *, render=True, fps=15, speed=1.5, horizon_s=90):
         "survivor_travel_m": float(scene.team.distance_m[0]) if scene.team else None,
         "occluded_samples": scene.occluded_samples,
         "original_route_m": scene.old_route.tolist(),
+        "native_route_m": scene.native_route.tolist(),
         "final_route_m": scene.route.tolist(),
         "samples": scene.samples,
         "model_notes": [
+            "Wheel geometry uses radians, matching the runtime robot model.",
+            (
+                "Integer paths are simplified with swept collision clearance "
+                "before tracking."
+            ),
             "The search site is authored; this case isolates detection and contact.",
             (
                 "Authored small layout; timed support release in debris cases, not "
@@ -710,8 +767,8 @@ def main(argv=None):
     parser.add_argument("--case", choices=["all", *CASES], default="all")
     parser.add_argument("--out", type=Path, default=Path("outputs/cases"))
     parser.add_argument("--no-render", action="store_true")
-    parser.add_argument("--fps", type=int, default=15)
-    parser.add_argument("--speed", type=float, default=1.5)
+    parser.add_argument("--fps", type=int, default=60)
+    parser.add_argument("--speed", type=float, default=1.0)
     args = parser.parse_args(argv)
     if (
         not 1 <= args.fps <= 60

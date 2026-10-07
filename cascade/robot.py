@@ -368,7 +368,7 @@ class WaypointDriver:
         if not np.all(np.isfinite(route)):
             raise ValueError("a replacement route must be finite")
         if not self.finished and not self.stalled:
-            remaining = self.waypoints[self.index:]
+            remaining = self.waypoints[self.index :]
             extra = len(route) - len(remaining)
             if extra in (0, 1) and np.array_equal(route[extra:], remaining):
                 if extra == 0:
@@ -380,8 +380,10 @@ class WaypointDriver:
                 start = self.waypoints[max(0, self.index - 1)]
                 span = end - start
                 length_sq = float(span @ span)
-                projection = 0.0 if length_sq == 0 else float(
-                    (route[0] - start) @ span / length_sq
+                projection = (
+                    0.0
+                    if length_sq == 0
+                    else float((route[0] - start) @ span / length_sq)
                 )
                 nearest = start + np.clip(projection, 0.0, 1.0) * span
                 if (
@@ -515,8 +517,7 @@ class WaypointDriver:
                 # robot actually landed.  Height filtering prevents a stacked
                 # switchback on another storey from capturing the projection.
                 same_level = np.flatnonzero(
-                    np.abs(self.waypoints[:, 2] - contact[2])
-                    <= self.fall_depth_m
+                    np.abs(self.waypoints[:, 2] - contact[2]) <= self.fall_depth_m
                 )
                 if same_level.size:
                     self.index = int(same_level[int(np.argmin(distance[same_level]))])
@@ -581,8 +582,12 @@ class WaypointDriver:
             self._drive(model, data, back - swing, back + swing)
             return
 
-        aim = self._aim_index(contact)
         self._state = self._moving_state()
+        self._steer(model, data, contact, position, forward)
+
+    def _steer(self, model, data, contact, position, forward) -> None:
+        """Steer toward the discrete aim point for the original rubble driver."""
+        aim = self._aim_index(contact)
         delta = self.waypoints[aim] - position
 
         desired = math.atan2(delta[1], delta[0])

@@ -5,7 +5,7 @@ import json
 import numpy as np
 import pytest
 
-from swarmrescue.cases import CASES, run_case, write_gallery
+from swarmrescue.cases import CASES, Situation, run_case, write_gallery
 
 
 @pytest.fixture(scope="module")
@@ -35,7 +35,9 @@ def test_fallen_geometry_invalidates_the_direct_route_and_robot_drives_detour(re
         np.array, (report["original_route_m"], report["final_route_m"])
     )
     assert original[:, 1].max() < 3
-    assert replacement[:, 1].max() > 4
+    # Either side of the debris is a valid detour; a nearest-cell tie can
+    # change which side is chosen when the physical start pose changes.
+    assert np.abs(replacement[:, 1] - 2.5).max() > 1.6
     assert abs(report["robot_final_m"][0] - 6.25) < 0.4
     assert report["robot_travel_m"] > 5
 
@@ -69,3 +71,24 @@ def test_gallery_uses_measured_chapters_and_relative_portable_assets(tmp_path, r
     assert "event.time_s / r.playback_speed" in page
     assert "http://" not in page and "https://" not in page
     assert json.loads((tmp_path / "summary.json").read_text())["accepted"]
+
+
+def test_case_wheels_rotate_about_horizontal_axles():
+    scene = Situation("contact")
+    for side in "lr":
+        for row in "fb":
+            geom = scene.model.geom(f"g_robot0_wheel_{side}{row}").id
+            axis = scene.data.geom_xmat[geom].reshape(3, 3)[:, 2]
+            assert abs(axis[1]) > 0.999 and abs(axis[2]) < 0.001
+    assert abs(scene.robot[2] - scene.spec.ride_height_m) < 0.005
+
+
+def test_continuous_motion_avoids_structural_contacts_and_excessive_turning(reports):
+    for name, report in reports.items():
+        assert report["structural_contact_samples"] == 0
+        metrics = report["motion_metrics"]
+        assert metrics["acceleration_p95_m_s2"] < 4
+        assert metrics["yaw_acceleration_p95_rad_s2"] < 8
+        assert metrics["total_turn_rad"] < (
+            0.15 if name in ("escort", "no-exit") else 4.5
+        )
