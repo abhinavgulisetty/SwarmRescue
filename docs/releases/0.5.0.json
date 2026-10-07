@@ -84,5 +84,12 @@
     "bytes": 8476928,
     "verified_files": 62
   },
-  "deadline_demo_zip_sha256": "03b75b945171720690eaba11f3b40222d1ec236c21cbede9dfb58fbbcf97c546"
+  "deadline_demo_zip_sha256": "03b75b945171720690eaba11f3b40222d1ec236c21cbede9dfb58fbbcf97c546",
+  "portable_install_check": {
+    "accepted": true,
+    "prefix": "/tmp/ember-050-portable-check/deployment",
+    "runtime_identity_matches_original": true,
+    "adaptive_live_arm_smoke_passed": true,
+    "demo_verified_budgets": 21
+  }
 }
