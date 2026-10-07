@@ -19,12 +19,14 @@ The September completion percentage is historical and does not describe this rel
 
 Four short cases explain local contact, a debris-triggered detour, physical
 evacuation, and stopping when no route exists. Each has a fixed camera, plain
-captions, labelled actors, and an event log. The local player lets you jump to
+captions, labelled actors, and an event log. The demos now use continuous
+lookahead, bounded wheel acceleration, correct wheel orientation, and 60 fps
+at normal playback speed. The local player lets you jump to
 the actual decision points:
 
 ```bash
-.venv/bin/python -m swarmrescue.cli cases --out outputs/cases
-# Open outputs/cases/index.html in a browser.
+.venv/bin/python -m swarmrescue.cli cases --out outputs/cases-smooth
+# Open outputs/cases-smooth/index.html in a browser.
 ```
 
 The cases use authored small layouts and the runtime physics, sensing, integer

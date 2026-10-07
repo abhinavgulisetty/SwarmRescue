@@ -506,8 +506,20 @@ class Situation:
                 _dashed_polyline(scene, self.old_route, (0.90, 0.18, 0.12, 1), 0.025)
             if len(self.route):
                 _polyline(scene, self.route, (0.17, 0.67, 0.43, 0.8), 0.018)
-            _polyline(scene, np.array(self.trail), (*ROBOT_COLOUR, 1), 0.035)
-            _polyline(scene, np.array(self.patient_trail), (*SURVIVOR_COLOUR, 1), 0.03)
+            live_robot = self.robot.copy()
+            live_robot[2] = 0.02
+            _polyline(
+                scene,
+                np.array([*self.trail, live_robot]),
+                (*ROBOT_COLOUR, 1),
+                0.035,
+            )
+            patient_trail = self.patient_trail
+            if self.team:
+                live_patient = self.patient.copy()
+                live_patient[2] = 0.02
+                patient_trail = [*patient_trail, live_patient]
+            _polyline(scene, np.array(patient_trail), (*SURVIVOR_COLOUR, 1), 0.03)
             if self.case.name == "escort":
                 _connect(
                     scene,

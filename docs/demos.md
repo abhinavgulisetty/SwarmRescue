@@ -6,10 +6,10 @@ visible; the full swarm mission is easier to explain afterwards.
 Generate the complete player, clips, storyboards and measured event traces:
 
 ```bash
-.venv/bin/python -m swarmrescue.cli cases --out outputs/cases
+.venv/bin/python -m swarmrescue.cli cases --out outputs/cases-smooth
 ```
 
-Open `outputs/cases/index.html`. It works locally without a server or internet
+Open `outputs/cases-smooth/index.html`. It works locally without a server or internet
 connection. Choose a situation, play it, or select an event button to jump to
 that point. The event times are simulated seconds; the player converts them to
 video time. Download links provide the original MP4 files for slides.
@@ -21,8 +21,8 @@ video time. Download links provide the original MP4 files for slides.
 | **03: Escort outside** | Contact starts the escort. The survivor follows the driven trail. The robot pauses when the gap grows. The green outdoor boundary and safe zone define completion. | “Reaching someone does not finish a rescue. The survivor must physically get outside. Watch the robot wait and then guide them across the boundary.” |
 | **04: No usable route** | Wider debris closes every passage. No replacement route is returned; the robot remains on the near side. | “Sometimes there is no route. The correct response here is to stop and report that, rather than drive through a blocked path.” |
 
-At the checked default settings, clip lengths are approximately 11, 28, 11 and
-5 seconds. The player provides chapters for contact, falling debris, replanning,
+At the checked default settings, clip lengths are approximately 14, 23, 14 and
+7 seconds, rendered at 60 fps and normal speed. The player provides chapters for contact, falling debris, replanning,
 waiting, evacuation and the no-route result. Storyboards show the initial state,
 the key event and the final state. JSON files include timestamps, measured
 positions, routes and sampled trajectories.
@@ -52,7 +52,7 @@ Generated clips live under `outputs/` and are not committed. The source, player
 template, instructions and physical acceptance tests are committed, so a fresh
 checkout can regenerate the demonstrations with the command above.
 
-## Checked presentation update
+## Previous interface validation
 
 All four physical case outcomes pass. The final complete regression suite passes
 715 tests, including the ARM tests, and runtime lint passes. Browser checks verify
@@ -82,3 +82,43 @@ from a fixed installed package passed. Source-build metadata now uses Git
 provenance; installed wheel provenance requires WHEEL metadata. The regression
 test covers this distinction. Artifact hashes, case events, source commits and
 final verification are recorded in [demo-validation.json](demo-validation.json).
+
+## Smooth motion update
+
+The latest four clips are in `outputs/cases-smooth/`. They render at 60 fps with
+normal playback speed, against 600 Hz physical simulation. Frames are sampled
+on integer physics ticks, so the default timing has exactly ten physics steps
+per video frame. The original clips remain in `outputs/cases/` for comparison.
+
+The small demo worlds previously omitted the radians compiler setting required
+by the shared robot geometry. Their wheel cylinders were oriented incorrectly.
+The compiler now matches the full building's radians setting, and a regression
+checks that the wheel axles are horizontal and the chassis has the correct ride
+height. The full building already had this setting.
+
+The ground-scene controller now targets an interpolated point at a distance
+along the route. It uses measured yaw damping, curvature-dependent speed
+reduction, continuous braking, and bounded changes in wheel commands. Native
+integer routes retain their original vertices in the report. Executable paths
+remove lattice zigzags only after swept clearance checks against the current
+boxes. The map uses a conservative 0.40 m radius; shortcuts use 0.38 m clearance.
+Driven trails extend to the live physical pose every frame.
+
+[Nav2's regulated pure pursuit documentation](https://docs.nav2.org/rolling/configuration_and_development/configuration_guide/controller_plugins/configuring_regulated_pp/)
+informed the lookahead and curvature regulation approach. This implementation
+applies measured yaw damping and wheel command limits directly in MuJoCo.
+The tuned controller is enabled for the focused ground scenes. The separate full
+building still uses its established rubble and stair controller.
+
+The new clips keep every intended outcome and have zero recorded contacts
+between the robot and structural walls/debris. At a common 50 Hz measurement
+rate, the detour's 95th-percentile planar acceleration falls from 12.15 to
+1.84 m/s² and yaw acceleration from 26.97 to 2.36 rad/s². Its total turning falls
+from 25.60 to 3.01 radians, travel from 12.91 to 6.43 m, and destination arrival
+from 39.0 to 20.36 simulated seconds. These describe the teaching cases; they are
+not calibrated hardware or medical results.
+
+All 723 tests pass, including physical tracking, collision clearance, bounded
+wheel changes, replanning continuity and the wheel orientation regression.
+The updated bundle and measured comparisons are recorded in
+[motion-validation.json](motion-validation.json).
