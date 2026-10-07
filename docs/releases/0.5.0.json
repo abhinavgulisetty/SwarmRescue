@@ -1,0 +1,81 @@
+{
+  "version": "0.5.0",
+  "source_commit": "dbc3fa6c1360e57e7c778d6ab61b2cedfcdf433a",
+  "wheel_sha256": "9e600dd121363c7bd076c3f6d0565a91c80716c1be8b68223df2b0ccc82c9b8f",
+  "source_fingerprint": "b28f525933c0840114a83690f745cb29afcf5404e5b8afdb0baaf0adc5b807d0",
+  "firmware_image_sha256": "098a65c455f7c9d11b32b0ecb792d3d4f720f3fbfa1fca4a4fc944b9511d8222",
+  "tests": {
+    "passed": 758,
+    "skipped": 3,
+    "routing_oracle_comparisons": 1200,
+    "deployment_tests_passed": 13
+  },
+  "missions": [
+    {
+      "label": "native",
+      "returncode": 0,
+      "wall_s": 225.66349657499813,
+      "command": [
+        "/home/zypher/Music/pjt1/SwarmRescue/outputs/deployment/deadline/run-mission",
+        "--firmware-robots",
+        "0",
+        "--report",
+        "/home/zypher/Music/pjt1/SwarmRescue/outputs/deployment/deadline/validation-final/native.json",
+        "--out",
+        "/home/zypher/Music/pjt1/SwarmRescue/outputs/deployment/deadline/validation-final/native"
+      ],
+      "physical_fields_match_040": true,
+      "source_fingerprint": "b28f525933c0840114a83690f745cb29afcf5404e5b8afdb0baaf0adc5b807d0",
+      "report_sha256": "653d39b0560336dcd8be1c747dd3d567bfdbc4337cf924e3b34b04fb585b50a7",
+      "firmware_requests": 0
+    },
+    {
+      "label": "arm",
+      "returncode": 0,
+      "wall_s": 257.152885360003,
+      "command": [
+        "/home/zypher/Music/pjt1/SwarmRescue/outputs/deployment/deadline/run-mission",
+        "--firmware-robots",
+        "2",
+        "--report",
+        "/home/zypher/Music/pjt1/SwarmRescue/outputs/deployment/deadline/validation-final/arm.json",
+        "--out",
+        "/home/zypher/Music/pjt1/SwarmRescue/outputs/deployment/deadline/validation-final/arm"
+      ],
+      "physical_fields_match_040": true,
+      "source_fingerprint": "b28f525933c0840114a83690f745cb29afcf5404e5b8afdb0baaf0adc5b807d0",
+      "report_sha256": "c664c99bd39f3db88753a1d8341e99e9991c9f9fee213ffa01a0155cb8deb021",
+      "firmware_requests": 25
+    }
+  ],
+  "focused_cases_accepted": 4,
+  "deadline_demo_verified_budgets": 21,
+  "chrome_checks": [
+    "20/26/40 deadline slider",
+    "pause/resume/restart",
+    "animation progresses",
+    "390px mobile page has no overflow"
+  ],
+  "evaluation": {
+    "cases": 144,
+    "distinct_maps": 48,
+    "feasible": 126,
+    "proven_optimal": 126,
+    "infeasible": 18,
+    "mean_objective_gap": 0,
+    "numeric_arena_limit_bytes": 204800,
+    "max_candidate_numeric_arena_bytes": 132360,
+    "legacy_proven_optimal": 55,
+    "legacy_mean_objective_gap": 0.1371651477297306,
+    "hybrid_vs_highs_geomean": 14.328550352461008,
+    "reference_fixed_default_build_speed_ratio": 20.159661399497068,
+    "reference_default_scope": "same previously opened inputs; fixed documented default config robustness check; author init+search versus full candidate API",
+    "ordinary_astar_speed_ratio": 0.9480949884430813
+  },
+  "limitations": [
+    "Static estimated objective and clock; not survival superiority.",
+    "Numeric arena excludes host graph/heap/temporary storage.",
+    "New deadline planner remains host-side; MCU Bellman image unchanged.",
+    "No whole-robot firmware, physical-board flash, remote publication or git push."
+  ]
+}

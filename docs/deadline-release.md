@@ -101,3 +101,30 @@ that accounting. The new deadline planner runs on the host; the existing
 validated Cortex-M4 service still runs the unchanged Q16 Bellman kernel.
 The static modeled objective and traversal clock do not establish measured
 survival, future-hazard prediction, complete MCU firmware or medical safety.
+
+
+## Installed and portable release
+
+The verified prefix is `outputs/deployment/deadline/`; the 0.4.0 deployment is
+retained. Both supervised seed-42 eight-robot missions exit 0 and evacuate 8/8
+survivors. The live-ARM mission makes 25 actual requests for two robots.
+Contact/evacuation times, positions, travel distances, estimated exposure proxies
+and radio bytes match the accepted 0.4.0 physical mission exactly. These are
+regression checks, not a physical rescue superiority experiment.
+
+The installed wheel's sealed solver files match the frozen evaluation hashes.
+The unchanged ARM image still occupies 184,336 RAM bytes including stack; the
+new host-side route solver is not claimed as ported into that image. Independent
+source-archive and rescue report verification, all four installed focused cases,
+and the installed 21-budget deadline demo pass from outside the checkout.
+
+```bash
+outputs/deployment/deadline/run-mission
+outputs/deployment/deadline/venv/bin/swarmrescue deadline-demo --out outputs/deadline-demo
+```
+
+The wheel and checksum-verified portable bundle are in `outputs/releases/0.5.0/`.
+The bundle includes installation instructions, exact lock, firmware, frozen raw
+comparisons, native/ARM report and source archives, the new deadline demo, and
+the earlier smooth physics clips labeled with their original provenance.
+[The release receipt](releases/0.5.0.json) records identities and process results.
