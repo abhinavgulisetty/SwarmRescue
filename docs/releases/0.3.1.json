@@ -67,5 +67,7 @@
   "original_research_claims_certified": false,
   "launcher": "outputs/deployment/rescue/run-mission",
   "archive": "outputs/releases/0.3.1/swarmrescue-0.3.1-complete-rescue.tar.gz",
-  "archive_sha256": "558481198729c8dbdf312b2cbde88a7884ded4616ed87b6299ec6439d464acc5"
+  "archive_sha256": "558481198729c8dbdf312b2cbde88a7884ded4616ed87b6299ec6439d464acc5",
+  "portable_native_installation_verified": true,
+  "portable_installed_source_fingerprint": "061dadcbe3e9c9a2d0f3b64d77746c7347b827d67848aa59379e38f9c4bae512"
 }
