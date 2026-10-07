@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from eval import solver_benchmark
 from eval.solver_benchmark import (
     DEVELOPMENT_SEEDS,
     EVALUATION_SEEDS,
@@ -44,3 +45,24 @@ def test_benchmark_models_reproduce_and_solve_identically(family):
         np.testing.assert_array_equal(
             result.negative_log_desirability, reference.negative_log_desirability
         )
+
+
+def test_frozen_evaluation_rejects_modified_code_before_generating_models(
+    monkeypatch, tmp_path
+):
+    kernel = solver_benchmark.Path(solver_benchmark.__file__).resolve().parents[1]
+    original_source = (kernel / "firmware/log_lmdp.c").read_bytes()
+    original_hash = solver_benchmark.hashlib.sha256
+
+    def modified_hash(data=b""):
+        return original_hash(data + b"modified" if data == original_source else data)
+
+    def forbidden_generation(*args):
+        pytest.fail("evaluation models must stay unopened after a source mismatch")
+
+    monkeypatch.setattr(solver_benchmark.hashlib, "sha256", modified_hash)
+    monkeypatch.setattr(solver_benchmark, "make_model", forbidden_generation)
+    output = tmp_path / "evaluation.json"
+    with pytest.raises(RuntimeError, match="differ from frozen evaluation"):
+        solver_benchmark.main(["--split", "evaluation", "--output", str(output)])
+    assert not output.exists()

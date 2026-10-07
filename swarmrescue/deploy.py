@@ -117,10 +117,24 @@ def install(wheel, prefix, *, tool_root=None):
                     str(python),
                     "-c",
                     "import json, sys; from mcu.runtime import FirmwareBackend\n"
+                    "import numpy as np\n"
+                    "from ember.routing import LMDPConfig, LMDPModel\n"
+                    "model=LMDPModel(np.array([0,2,4,5]), "
+                    "np.array([0,1,1,2,2]), "
+                    "np.array([.995,.005,.995,.005,1.]), "
+                    "np.array([.01,.01,0.]), np.array([0,0,1],bool), "
+                    "np.zeros(3,bool), LMDPConfig())\n"
                     "with FirmwareBackend(sys.argv[1], arm=True, "
-                    "tool_root=sys.argv[2], timeout_s=10) as backend:\n"
+                    "tool_root=sys.argv[2], timeout_s=10, "
+                    "strategy='auto') as backend:\n"
+                    "    result=backend.solve(model)\n"
+                    "    if not result.fixed_point or result.route(0)!=(0,1,2):\n"
+                    "        raise RuntimeError("
+                    "'ARM adaptive self-loop route failed')\n"
                     "    print(json.dumps({'passed': True, "
                     "'emulator': backend.metadata['emulator'], "
+                    "'strategy': backend.strategy, 'sweeps': result.sweeps, "
+                    "'requests': backend.requests, "
                     "'image_sha256': backend.image_sha256}))\n",
                     firmware["executable"],
                     str(tool_root),
