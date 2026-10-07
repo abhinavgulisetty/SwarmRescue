@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "frozen": true,
+  "frozen_at_utc": "2026-10-07T16:36:11.879003+00:00",
+  "source_commit": "03af9068c1bfef7416096c6c083ed2644537b64c",
+  "candidate": "hybrid_exact",
+  "selection_rule": "Exact fastest/cheapest certificates, then full DP if it fits, then exact feasible-time corridor DP if it fits, otherwise bounded dual A*.",
+  "scope": "Static estimated length plus arrival-node exposure objective, discrete time budget; no physical rescue/hardware superiority claim.",
+  "development_seeds": [
+    52000,
+    52001,
+    52002,
+    52003
+  ],
+  "evaluation_seeds": [
+    62000,
+    62001,
+    62002,
+    62003,
+    62004,
+    62005,
+    62006,
+    62007
+  ],
+  "families": [
+    "grid",
+    "rooms",
+    "dense",
+    "deadends",
+    "tradeoff",
+    "large_grid"
+  ],
+  "methods": [
+    "pareto",
+    "astar",
+    "lazy_astar",
+    "dual_astar",
+    "bounded_dp",
+    "window_dp",
+    "hybrid_exact",
+    "milp"
+  ],
+  "label_caps": [
+    32,
+    128,
+    4096
+  ],
+  "numeric_arena_bytes": 204800,
+  "samples_per_case": 3,
+  "timing": "Cold full API call including quantization, preprocessing and allocation; compilation/import warmup excluded; HiGHS time limit 3 seconds.",
+  "confidence_interval": "3000 map-seed cluster bootstrap samples, RNG 802913; speed only mutually proven-optimal feasible pairs.",
+  "memory_scope": "Numeric scratch only; host Python heap/graph temporaries and native HiGHS/reference process memory excluded.",
+  "source_files_sha256": {
+    "ember/routing/deadline.py": "04272f41700a4c9cb40eeb2b84cacd9233a28fe35c4ef5ab8c106b91ac9a7f4d",
+    "ember/routing/constrained.py": "3ae1df2079b0e0ca041d4e1432ba48d5ebd0f67d6f9a073dff4dfe17c97b5d76",
+    "eval/constrained_benchmark.py": "aee7099b817d6454e07dd5784f00840fe17de746096cc25218a309de51e0407b",
+    "eval/procedural.py": "4820c6491fabc579fd71f78ed6003440600f887a941aac1b07149d1fd135b2a5",
+    "cascade/floorplan.py": "0394235907d898e63b93103931ba421510dc34192021c6f92c4d52e7ed05f16c",
+    "cascade/params.py": "0f9bdb044bad9d38ca46d85b92cee27f2b4393f491cecc28e4affd2b1d305b24",
+    "cascade/rng.py": "5599f313f17ae9594d488a8f252812a66e00171db3bc51a97ec4de90c3f2e7db",
+    "cascade/extract.py": "64c04a4053b4cd2f1faaa05555a379acb78e0f7c03f9444b7314990bc87bd7c3",
+    "eval/reference_constrained.py": "c801a625e150a14328785ce09a16ed3258c47112b0ee119eeb57ae3f3743e3d4"
+  },
+  "reference": {
+    "upstream": "https://bitbucket.org/s-ahmadi/multiobj",
+    "revision": "4098543d0c5d78afc977017b5abf6054671a8c43",
+    "binary_sha256": "c80bfa62edbe7416ab0126fb0eda5d5ecfdd8ebeeb39381485d40e8590434ce9",
+    "compiler": "g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+    "modified_files_sha256": {
+      "sys/constants.h": "ac0ccce96f883b45824cb9ac1a7bb59f1defbc28a610e044108088fa2f0676a6",
+      "search/NWRCA.hpp": "99ae5aae84d6ff10f0460797943cfdca8aebfedc9c6d72dc0e0af2a66dccbb3d",
+      "programs/roadhog.cpp": "96398f1864ce6b485f0d03bda7b28bc880c96adf2d455ca63e47bd3d214ce137"
+    },
+    "adaptation": "DIM=2; explicit deadline; unused DIM=3 dispatcher omitted"
+  }
+}
