@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "presentation_source_commit": "43897cba5a05b7fdd921b1be0d247e406cd4e278",
+  "provenance_fix_commit": "9f20e422b29b9e748c0e9564b270dd11c2a8479f",
+  "tests": {
+    "passed": 715,
+    "skipped": 0,
+    "arm_tests_enabled": true,
+    "runtime_lint_passed": true
+  },
+  "focused_cases": [
+    {
+      "case": "contact",
+      "outcome": "local_contact",
+      "accepted": true,
+      "duration_simulated_s": 16.092,
+      "events": [
+        {
+          "event": "search_started",
+          "time_s": 0
+        },
+        {
+          "event": "survivor_detected",
+          "time_s": 7.288,
+          "measured_position_m": [
+            6.254570756196316,
+            2.4844002384063923,
+            -1.408026227309872e-06
+          ]
+        },
+        {
+          "event": "local_contact",
+          "time_s": 13.092,
+          "distance_m": 0.6989136666448751
+        }
+      ]
+    },
+    {
+      "case": "reroute",
+      "outcome": "destination_reached",
+      "accepted": true,
+      "duration_simulated_s": 42.0,
+      "events": [
+        {
+          "event": "route_planned",
+          "time_s": 0
+        },
+        {
+          "event": "debris_released",
+          "time_s": 2.0,
+          "trigger": "authored timed support release"
+        },
+        {
+          "event": "geometry_scanned",
+          "time_s": 4.2,
+          "debris_position_m": [
+            3.7499999999990674,
+            2.49999999999999,
+            0.34989224457978363
+          ],
+          "graph_nodes": 1000
+        },
+        {
+          "event": "route_replaced",
+          "time_s": 4.2
+        },
+        {
+          "event": "destination_reached",
+          "time_s": 39.0
+        }
+      ]
+    },
+    {
+      "case": "escort",
+      "outcome": "survivor_evacuated",
+      "accepted": true,
+      "duration_simulated_s": 15.852,
+      "events": [
+        {
+          "event": "route_planned",
+          "time_s": 0
+        },
+        {
+          "event": "survivor_detected",
+          "time_s": 0.0,
+          "measured_position_m": [
+            3.7545707561963164,
+            2.4844002384063923,
+            -1.4088345484664089e-06
+          ]
+        },
+        {
+          "event": "local_contact",
+          "time_s": 0.0,
+          "distance_m": 0.4999999999974767
+        },
+        {
+          "event": "escort_waits",
+          "time_s": 8.952,
+          "gap_m": 0.7501783489726832
+        },
+        {
+          "event": "survivor_evacuated",
+          "time_s": 12.852,
+          "survivor_position_m": [
+            -0.500664048963233,
+            2.376630719224287,
+            -0.000148825512327401
+          ]
+        }
+      ]
+    },
+    {
+      "case": "no-exit",
+      "outcome": "safe_stop",
+      "accepted": true,
+      "duration_simulated_s": 7.2,
+      "events": [
+        {
+          "event": "route_planned",
+          "time_s": 0
+        },
+        {
+          "event": "debris_released",
+          "time_s": 2.0,
+          "trigger": "authored timed support release"
+        },
+        {
+          "event": "geometry_scanned",
+          "time_s": 4.2,
+          "debris_position_m": [
+            3.750000016951966,
+            2.4999999999943854,
+            0.34989224458164786
+          ],
+          "graph_nodes": 976
+        },
+        {
+          "event": "no_route",
+          "time_s": 4.2
+        }
+      ]
+    }
+  ],
+  "player": {
+    "all_four_clips_verified_in_browser": true,
+    "event_seeking_verified": true,
+    "portable_zip_playback_verified": true,
+    "video_durations_s": [
+      10.733333,
+      28,
+      10.6,
+      4.866667
+    ]
+  },
+  "bundle": {
+    "path": "outputs/cases/ember-situation-demos.zip",
+    "bytes": 3506209,
+    "sha256": "62a88288cb30ef07b9fbd1e2488665d14fd4b8b1508b817d44c1b285a29a429a"
+  },
+  "installed_package_check": {
+    "temporary_validation_build": true,
+    "doctor_ready": true,
+    "cases_command_passed": true,
+    "template_loaded": true,
+    "runtime_files": 93,
+    "source_fingerprint": "24422eff0ec7bfa2378c6233b596c577d27464220f8df33fd306fd0947e4edaf"
+  },
+  "full_mission": {
+    "accepted": true,
+    "survivors_contacted": 8,
+    "survivors_evacuated": 8,
+    "last_evacuation_s": 81.396,
+    "video": "outputs/cases/full-mission/compact/seed42_end_to_end.mp4",
+    "video_sha256": "6318892fe590f2596451ed26b212d125451ec69b27a45c7b9536ff9553580e8a",
+    "video_size": [
+      1920,
+      1080
+    ],
+    "video_duration_s": 44.83,
+    "report": "outputs/cases/full-mission.json",
+    "report_sha256": "2d40cb56a03824cec52e4295f53dc0ebd994045b5c55269315ce072df395e8a0",
+    "source_kind": "installed_distribution",
+    "source_fingerprint": "24422eff0ec7bfa2378c6233b596c577d27464220f8df33fd306fd0947e4edaf",
+    "matches_previous_release_fields": [
+      "survivor_contact_time_s",
+      "survivor_evacuation_time_s",
+      "survivor_positions_m",
+      "survivor_distance_m",
+      "survivor_exposure_proxy",
+      "robot_exposure_proxy",
+      "radio_bytes",
+      "radio_deliveries"
+    ]
+  },
+  "model_scope": {
+    "authored_teaching_layouts": true,
+    "timed_debris_release": true,
+    "full_structural_map_for_case_planner": true,
+    "search_site_supplied_in_contact_case": true,
+    "wheel_driven_robots": true,
+    "force_driven_survivor_proxies": true,
+    "gait_and_physiology_calibrated": false,
+    "distributed_or_arm_execution_in_focused_cases": false
+  },
+  "provenance_incident": {
+    "first_full_render_report_rejected": true,
+    "reason": "Source egg-info inventory changed during a concurrent wheel build and was incorrectly treated as installed wheel provenance.",
+    "resolution": "Repeated complete render from a fixed installed wheel; added WHEEL metadata requirement and a regression test for source-build inventories."
+  }
+}

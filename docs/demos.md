@@ -51,3 +51,34 @@ pause threshold: wait at 0.75 m gap and resume after it closes to 0.55 m.
 Generated clips live under `outputs/` and are not committed. The source, player
 template, instructions and physical acceptance tests are committed, so a fresh
 checkout can regenerate the demonstrations with the command above.
+
+## Checked presentation update
+
+All four physical case outcomes pass. The final complete regression suite passes
+715 tests, including the ARM tests, and runtime lint passes. Browser checks verify
+all four video selections and measured-event seeking. The same checks pass after
+extracting the 3.5 MB ZIP outside the repository. A temporary wheel installation
+also verifies the cases command, native kernel, player template and source assets.
+
+The revised full mission is available locally at
+`outputs/cases/full-mission/compact/seed42_end_to_end.mp4`. It is 1920 × 1080 at
+12 fps and lasts 44.83 seconds. Eight survivors are physically evacuated; the
+last crossing occurs at 81.396 simulated seconds. Contact times, evacuation times,
+final survivor positions, travel distances, survivor/robot exposure proxies and
+radio results match the previously verified release exactly. The acceptance
+report is `outputs/cases/full-mission.json`.
+
+To reproduce the full mission from source after the focused cases:
+
+```bash
+.venv/bin/python -m swarmrescue.cli rescue --render --height 778 \
+  --fps 12 --speed 2 --out outputs/cases/full-mission \
+  --report outputs/cases/full-mission.json
+```
+
+The first full render completed evacuation but its provenance report was rejected
+when a concurrent package build changed source egg-info inventory. A fresh render
+from a fixed installed package passed. Source-build metadata now uses Git
+provenance; installed wheel provenance requires WHEEL metadata. The regression
+test covers this distinction. Artifact hashes, case events, source commits and
+final verification are recorded in [demo-validation.json](demo-validation.json).
