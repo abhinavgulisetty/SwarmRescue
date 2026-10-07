@@ -31,6 +31,17 @@ class DeadlineRoute:
     labels_used: int
     arena_high_water_bytes: int
     proposal_replaced: bool = False
+    lower_bound_q16: int | None = None
+    search_strategy: str = "pareto"
+    expanded_labels: int = 0
+    preprocessing_runs: int = 0
+
+    @property
+    def certified_gap(self) -> float | None:
+        """Absolute gap in the declared estimated objective, not true exposure."""
+        if not self.feasible or self.lower_bound_q16 is None:
+            return None
+        return max(0.0, self.estimated_objective - self.lower_bound_q16 / Q16_SCALE)
 
 
 def deadline_route(
@@ -44,8 +55,11 @@ def deadline_route(
     dt_s: float,
     max_labels: int = 4096,
     arena: MCUArena | None = None,
+    strategy: str = "pareto",
 ) -> DeadlineRoute:
     """Minimize length plus estimated exposure subject to a traversal deadline."""
+    if strategy not in ("pareto", "astar", "lazy_astar", "dual_astar"):
+        raise ValueError("unknown deadline search strategy")
     risk = np.asarray(risk_cost, dtype=float)
     if (
         risk.shape != (graph.n_nodes,)
@@ -59,23 +73,71 @@ def deadline_route(
         or any(not 0 <= goal < graph.n_nodes for goal in goals)
     ):
         raise ValueError("route endpoints must be graph nodes")
-    if not isinstance(available_steps, int) or available_steps < 0:
+    if (
+        not isinstance(available_steps, int)
+        or isinstance(available_steps, bool)
+        or available_steps < 0
+    ):
         raise ValueError("available_steps must be a nonnegative integer")
     if (
-        max_labels < 1
+        not isinstance(max_labels, int)
+        or isinstance(max_labels, bool)
+        or max_labels < 1
         or min(walking_speed_m_s, dt_s) <= 0
         or not all(math.isfinite(value) for value in (walking_speed_m_s, dt_s))
     ):
         raise ValueError("speed, time step and label capacity must be positive")
+    if (
+        graph.edges.ndim != 2
+        or graph.edges.shape[1] != 2
+        or not np.issubdtype(graph.edges.dtype, np.integer)
+        or graph.edge_cost.shape != (graph.n_edges,)
+        or np.any(graph.edges < 0)
+        or np.any(graph.edges >= graph.n_nodes)
+        or not np.all(np.isfinite(graph.edge_cost))
+        or np.any(graph.edge_cost < 0)
+    ):
+        raise ValueError(
+            "graph edges require valid endpoints and finite nonnegative lengths"
+        )
     adjacent = [[] for _ in range(graph.n_nodes)]
     for (left, right), length in zip(graph.edges, graph.edge_cost, strict=True):
-        steps = max(1, math.ceil(float(length) / walking_speed_m_s / dt_s))
+        travel = float(length) / walking_speed_m_s / dt_s
+        if not math.isfinite(travel):
+            raise ValueError("edge traversal time exceeds finite range")
+        steps = max(1, math.ceil(travel))
         for source, target in ((int(left), int(right)), (int(right), int(left))):
-            objective = round((float(length) + risk[target] * steps * dt_s) * Q16_SCALE)
+            encoded = (float(length) + risk[target] * steps * dt_s) * Q16_SCALE
+            if not math.isfinite(encoded) or encoded >= INT32_MAX:
+                raise ValueError("edge objective exceeds integer finite range")
+            objective = round(encoded)
             if objective >= INT32_MAX:
                 raise ValueError("edge objective exceeds integer finite range")
             adjacent[source].append((target, steps, max(1, objective)))
     goal_set = set(goals)
+    if strategy != "pareto":
+        from ember.routing.constrained import constrained_search
+
+        return constrained_search(
+            adjacent,
+            start,
+            goals,
+            available_steps,
+            max_labels,
+            arena=arena,
+            strategy=strategy,
+            legacy_fallback=lambda: deadline_route(
+                graph,
+                start,
+                goals,
+                risk_cost,
+                available_steps=available_steps,
+                walking_speed_m_s=walking_speed_m_s,
+                dt_s=dt_s,
+                max_labels=max_labels,
+                arena=arena,
+            ),
+        )
 
     # A lexicographic fastest-path certificate is also the bounded-memory fallback.
     fastest = {start: (0, 0)}
