@@ -77,5 +77,12 @@
     "Numeric arena excludes host graph/heap/temporary storage.",
     "New deadline planner remains host-side; MCU Bellman image unchanged.",
     "No whole-robot firmware, physical-board flash, remote publication or git push."
-  ]
+  ],
+  "portable_bundle": {
+    "path": "outputs/releases/0.5.0/swarmrescue-0.5.0-complete-rescue.tar.gz",
+    "sha256": "f63dfa74a1f7e58de8bbf3fb114b2ec2cd4fda61981eebdade7733fc391cbcf1",
+    "bytes": 8476928,
+    "verified_files": 62
+  },
+  "deadline_demo_zip_sha256": "03b75b945171720690eaba11f3b40222d1ec236c21cbede9dfb58fbbcf97c546"
 }
