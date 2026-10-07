@@ -13,6 +13,7 @@ from pathlib import Path
 COMMANDS = {
     "mission": "cascade.demo",
     "rescue": "swarmrescue.rescue",
+    "cases": "swarmrescue.cases",
     "rescue-evaluation": "eval.rescue",
     "tactical": "ember.demo",
     "view": "cascade.view",

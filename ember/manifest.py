@@ -154,6 +154,7 @@ def installed_source_files():
             ".ld",
             ".json",
             ".txt",
+            ".html",
         }:
             continue
         source = package.locate_file(name).resolve()

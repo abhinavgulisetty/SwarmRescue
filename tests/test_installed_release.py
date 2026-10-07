@@ -109,3 +109,24 @@ def test_source_identity_includes_installed_content_and_dependency_versions(tmp_
         value.source_identity
         != replace(value, versions={"numpy": "different"}).source_identity
     )
+
+
+def test_installed_presentation_template_is_fingerprinted_and_archived(
+    tmp_path, monkeypatch
+):
+    root, package = installed_package(tmp_path, monkeypatch)
+    path = root / "swarmrescue/templates/cases.html"
+    path.parent.mkdir(parents=True)
+    path.write_text("<html>case player</html>")
+    package.files.append("swarmrescue/templates/cases.html")
+    before = manifest.capture_manifest(7, {}, {})
+    path.write_text("<html>changed player</html>")
+    after = manifest.capture_manifest(7, {}, {})
+    assert before.source_fingerprint != after.source_fingerprint
+    output = tmp_path / "source.tar.gz"
+    manifest.write_runtime_source_bundle(output)
+    with tarfile.open(output) as archive:
+        assert (
+            archive.extractfile("installed/swarmrescue/templates/cases.html").read()
+            == path.read_bytes()
+        )

@@ -15,6 +15,24 @@ multi-building physics grid and native/ARM verification pass. Human physiology a
 [historical evidence](FULL_PROJECT_STATUS.md), and [research proposal](PROPOSAL.md).
 The September completion percentage is historical and does not describe this release.
 
+## Focused demonstrations
+
+Four short cases explain local contact, a debris-triggered detour, physical
+evacuation, and stopping when no route exists. Each has a fixed camera, plain
+captions, labelled actors, and an event log. The local player lets you jump to
+the actual decision points:
+
+```bash
+.venv/bin/python -m swarmrescue.cli cases --out outputs/cases
+# Open outputs/cases/index.html in a browser.
+```
+
+The cases use authored small layouts and the runtime physics, sensing, integer
+planner and escort components. They isolate individual situations; the full
+mission still demonstrates the swarm. The source rescue HUD also keeps the scene
+visible through completion, with contact/evacuation counts and a short explanation.
+See [the demo and speaking guide](docs/demos.md) for clips and presentation notes.
+
 ## Deployed release
 
 The checked local deployment is in `outputs/deployment/rescue/`. Run its eight-robot mission:

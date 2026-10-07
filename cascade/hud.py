@@ -221,6 +221,51 @@ def _storey_span(readouts: list[RobotReadout]) -> int:
     return highest + 1
 
 
+def story_frame(
+    frame: np.ndarray,
+    *,
+    title: str,
+    situation: str,
+    action: str,
+    elapsed_s: float,
+    legend: str,
+    progress: str = "",
+) -> np.ndarray:
+    """Keep the scene visible, with one concrete explanation outside it."""
+    from PIL import Image, ImageDraw
+
+    width, height = frame.shape[1], frame.shape[0]
+    scale = width / 1280
+    pad = round(26 * scale)
+    header, footer = round(91 * scale), round(111 * scale)
+    paper, ink, muted = (245, 244, 239), (30, 40, 46), (81, 92, 97)
+    image = Image.new("RGB", (width, height + header + footer), paper)
+    image.paste(Image.fromarray(frame), (0, header))
+    draw = ImageDraw.Draw(image)
+    title_font = _font(_LABEL_FONTS, max(14, round(27 * scale)))
+    body = _font(_BODY_FONTS, max(12, round(21 * scale)))
+    small = _font(_BODY_FONTS, max(10, round(16 * scale)))
+    draw.text((pad, round(15 * scale)), title, font=title_font, fill=ink)
+    draw.text((pad, round(53 * scale)), situation, font=body, fill=muted)
+    clock = f"{elapsed_s:05.1f} s simulated"
+    clock_width = draw.textlength(clock, font=small)
+    draw.text(
+        (width - pad - clock_width, round(19 * scale)), clock, font=small, fill=muted
+    )
+    top = header + height
+    draw.text((pad, top + round(18 * scale)), action, font=body, fill=ink)
+    draw.text((pad, top + round(59 * scale)), legend, font=small, fill=muted)
+    if progress:
+        length = draw.textlength(progress, font=small)
+        draw.text(
+            (width - pad - length, top + round(86 * scale)),
+            progress,
+            font=small,
+            fill=ink,
+        )
+    return np.asarray(image, dtype=np.uint8)
+
+
 def _draw_header(
     draw,
     m: _Metrics,

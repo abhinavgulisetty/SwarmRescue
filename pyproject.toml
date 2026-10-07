@@ -38,7 +38,7 @@ firmware = ["*.c", "*.h"]
 "firmware.replay" = ["*.c", "*.ld"]
 "firmware.runtime" = ["*.c", "*.h", "*.ld"]
 eval = ["frozen_protocol.json"]
-swarmrescue = ["runtime-lock.txt"]
+swarmrescue = ["runtime-lock.txt", "templates/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EMBER / Situations explained</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: #f5f4ef; color: #253039;
+      font: 17px/1.55 system-ui, sans-serif;
+    }
+    main { max-width: 1440px; margin: 40px auto; padding: 0 28px; }
+    header p { max-width: 850px; color: #526069; }
+    h1 { font-size: 34px; font-weight: 650; margin: 0; }
+    h2 { font-size: 24px; margin: 0 0 6px; }
+    .layout {
+      display: grid; grid-template-columns: 270px 1fr;
+      gap: 32px; margin-top: 30px;
+    }
+    nav { display: flex; flex-direction: column; gap: 8px; }
+    button, a { font: inherit; }
+    button {
+      cursor: pointer; text-align: left; border: 1px solid #cbd1cf;
+      background: transparent; padding: 12px 15px; border-radius: 5px;
+      color: inherit;
+    }
+    button:hover { background: #e5eae6; }
+    button[aria-current="true"] {
+      background: #253c4c; color: white; border-color: #253c4c;
+    }
+    button:focus-visible, a:focus-visible {
+      outline: 3px solid #2279b8; outline-offset: 3px;
+    }
+    video {
+      width: 100%; display: block; background: #cbd2cf;
+      margin-top: 18px; border: 1px solid #bdc6c2;
+    }
+    #chapters { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+    #chapters button { font-size: 14px; padding: 7px 10px; }
+    #result {
+      border-left: 3px solid #37795b; padding: 10px 15px; background: #e9eee8;
+    }
+    a { color: #236592; }
+    small { font-size: 14px; color: #58656b; }
+    .notes {
+      margin-top: 32px; border-top: 1px solid #cbd1cf;
+      padding-top: 18px; max-width: 1040px;
+    }
+    #setup { margin: 0; color: #526069; }
+    @media (max-width: 850px) {
+      main { margin: 20px auto; padding: 0 15px; }
+      .layout { grid-template-columns: 1fr; gap: 20px; }
+      nav { flex-direction: row; flex-wrap: wrap; }
+      nav button { font-size: 14px; }
+      h1 { font-size: 28px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <small>EMBER / Demonstrations</small>
+      <h1>GALLERY_TITLE</h1>
+      <p>Choose a case to see the event, the robot’s response, and the outcome.
+        Use the event buttons to jump to the decision points.</p>
+    </header>
+    <div class="layout">
+      <nav aria-label="Choose a situation">BUTTONS</nav>
+      <section>
+        <h2 id="title"></h2>
+        <p id="setup"></p>
+        <video controls playsinline preload="metadata"
+          aria-label="Physical simulation demonstration"></video>
+        <div id="chapters" aria-label="Jump to an event"></div>
+        <p id="result"></p>
+        <p>
+          <a id="download">Download video</a> ·
+          <a id="trace">Read simulation trace</a> ·
+          <a id="storyboard">View storyboard</a>
+        </p>
+        <small>The clock shows simulated seconds. Chapter times are measured
+          during the run and converted to the video's playback speed.</small>
+      </section>
+    </div>
+    <div class="notes">
+      <strong>What these clips demonstrate</strong>
+      <p>The robot moves through wheel actuators. Local survivor detection uses
+        range and wall visibility. The detour is calculated by the native integer
+        routing kernel after the fallen geometry is scanned. The survivor follows
+        under bounded forces; evacuation requires crossing the outdoor boundary.</p>
+      <p>The search site is supplied and debris release is deliberately timed for
+        teaching. A complete structural map is available to the planner. The
+        survivor is an idealized ambulatory capsule. These clips explain
+        individual components; the separate full mission demonstrates the swarm.</p>
+    </div>
+  </main>
+  <script>
+    const reports = DATA;
+    const labels = {
+      search_started: 'Start searching',
+      route_planned: 'Original route',
+      debris_released: 'Debris falls',
+      route_replaced: 'Detour calculated',
+      no_route: 'No route: stop',
+      survivor_detected: 'Local sensor detects survivor',
+      local_contact: 'Contact confirmed',
+      escort_waits: 'Wait for survivor',
+      survivor_evacuated: 'Survivor outside',
+      destination_reached: 'Destination reached'
+    };
+    const results = {
+      local_contact: 'Contact confirmed. Evacuation is demonstrated separately.',
+      destination_reached: 'Destination reached using the detour. The rejected direct path stays visible in red.',
+      survivor_evacuated: 'Evacuation complete: the survivor physically crossed the outdoor boundary.',
+      safe_stop: 'The destination is unreachable. The robot stops and reports no route.'
+    };
+    const video = document.querySelector('video');
+    function select(index) {
+      const r = reports[index];
+      document.querySelectorAll('[data-case]').forEach(button => {
+        button.setAttribute('aria-current', Number(button.dataset.case) === index);
+      });
+      document.querySelector('#title').textContent = r.question;
+      document.querySelector('#setup').textContent = r.setup;
+      video.pause();
+      video.src = r.video;
+      video.poster = r.thumbnail;
+      document.querySelector('#result').textContent =
+        (r.accepted ? 'Observed outcome: ' : 'Case failed: ') +
+        (results[r.outcome] || r.outcome);
+      const assets = [
+        ['download', r.video],
+        ['trace', r.case + '.json'],
+        ['storyboard', r.case + '-storyboard.png']
+      ];
+      for (const [id, file] of assets) {
+        const link = document.querySelector('#' + id);
+        link.href = file;
+        if (id === 'download') link.download = file;
+      }
+      const chapters = document.querySelector('#chapters');
+      chapters.replaceChildren();
+      const seen = new Set();
+      for (const event of r.events) {
+        if (!labels[event.event] || seen.has(event.event)) continue;
+        if (r.case === 'escort' && event.event !== 'local_contact' &&
+            event.event !== 'escort_waits' && event.event !== 'survivor_evacuated') continue;
+        seen.add(event.event);
+        const button = document.createElement('button');
+        button.textContent = event.time_s.toFixed(1) + 's / ' + labels[event.event];
+        button.addEventListener('click', () => {
+          video.currentTime = event.time_s / r.playback_speed;
+          video.play().catch(() => {});
+        });
+        chapters.append(button);
+      }
+    }
+    document.querySelectorAll('[data-case]').forEach(button => {
+      button.addEventListener('click', () => select(Number(button.dataset.case)));
+    });
+    select(0);
+  </script>
+</body>
+</html>

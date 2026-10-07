@@ -103,6 +103,7 @@ from .hud import (
     draw_hud,
     research_card,
     stack_panes,
+    story_frame,
 )
 from .mjcf import settled_poses, to_mjcf, to_settled_mjcf
 from .params import BuildingParams, CascadeParams, compact_demo_params
@@ -2285,6 +2286,52 @@ class Stage:
                 floor_surface_z,
             ),
         )
+
+        if self.evacuation is not None:
+            panes = stack_panes(
+                hero,
+                top,
+                plan_fraction=0.65,
+                target_width=2 * hero.shape[1],
+                hero_label=f"Following {subject.name}",
+                plan_label="Floor plan · north up",
+            )
+            team = self.evacuation
+            patient = np.flatnonzero(team.owner == subject_index)
+            if mission_status is not None:
+                action = (
+                    f"{team.rescued}/{len(team.body_ids)} survivors verified outside. "
+                    "The final positions remain visible."
+                )
+            elif collapse_shot:
+                action = (
+                    "A damaged member has fallen. Routes are checked against "
+                    "the changed geometry."
+                )
+            elif len(patient) and np.isfinite(team.evacuation_time_s[patient[0]]):
+                action = f"{subject.name} has escorted its survivor outside."
+            elif len(patient):
+                action = f"{subject.name} is guiding its survivor toward the exit."
+            else:
+                action = (
+                    f"{subject.name} is approaching its assigned survivor "
+                    "to confirm local contact."
+                )
+            return story_frame(
+                panes,
+                title="EMBER / Search and rescue",
+                situation="Find each survivor, make contact, then escort them outside.",
+                action=action,
+                elapsed_s=elapsed_s,
+                legend=(
+                    "Robot colour: driven trail   ·   Green: replacement route   ·   "
+                    "Red dash: rejected route"
+                ),
+                progress=(
+                    f"Contact {team.contacted}/{len(team.body_ids)}   ·   "
+                    f"Outside {team.rescued}/{len(team.body_ids)}"
+                ),
+            )
 
         panes = stack_panes(
             hero,
