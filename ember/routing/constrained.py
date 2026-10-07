@@ -13,6 +13,8 @@ import heapq
 from dataclasses import replace
 
 import numpy as np
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import dijkstra
 
 from ember.routing.deadline import DeadlineRoute
 from mcu import INT32_MAX, Q16_SCALE, MCUArena
@@ -36,6 +38,50 @@ def _table(reverse, goals, storage, *, multiplier=None):
     primary = _vector(storage, n, np.int64, INF)
     secondary = _vector(storage, n, np.int64, INF)
     following = _vector(storage, n, np.int32, -1)
+    # Float64 Dijkstra is exact for integer sums strictly below 2**53. Outside
+    # that proven range retain the integer heap; never round an unsafe bound.
+    largest = max(
+        (
+            steps if multiplier is None else cost + multiplier * steps
+            for row in reverse
+            for _, steps, cost in row
+        ),
+        default=0,
+    )
+    if n * largest < 2**53:
+        entries = {}
+        for target, row in enumerate(reverse):
+            for source, steps, cost in row:
+                weight = steps if multiplier is None else cost + multiplier * steps
+                key = (target, source)
+                entries[key] = min(weight, entries.get(key, weight))
+        rows, columns, weights = [], [], []
+        for (target, source), weight in entries.items():
+            rows.append(target)
+            columns.append(source)
+            weights.append(float(weight))
+        matrix = coo_matrix((weights, (rows, columns)), shape=(n, n)).tocsr()
+        distances = dijkstra(
+            matrix, directed=True, indices=sorted(set(goals)), min_only=True
+        )
+        finite = np.isfinite(distances)
+        primary[finite] = distances[finite].astype(np.int64)
+        secondary[np.array(sorted(set(goals)), dtype=np.int32)] = 0
+        # Recover fastest/cost-lowest ties on the DAG of optimal primary arcs.
+        for target in np.argsort(distances):
+            if not finite[target]:
+                break
+            for source, steps, cost in reverse[target]:
+                weight = steps if multiplier is None else cost + multiplier * steps
+                if int(primary[source]) != int(primary[target]) + weight:
+                    continue
+                candidate = int(secondary[target]) + (
+                    cost if multiplier is None else steps
+                )
+                if candidate < secondary[source]:
+                    secondary[source] = candidate
+                    following[source] = target
+        return primary, secondary, following
     queue = []
     for goal in sorted(set(goals)):
         primary[goal] = secondary[goal] = 0

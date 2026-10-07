@@ -193,3 +193,20 @@ def test_high_cost_path_certificate_uses_int64_without_label_overflow():
     )
     assert result.optimal and result.feasible and result.certified_gap == 0
     assert result.estimated_objective * 65536 > INT32_MAX
+
+
+@pytest.mark.parametrize("multiplier", [1000, 10000000])
+def test_heuristic_tables_preserve_integer_ties_above_float_exact_range(multiplier):
+    from ember.routing.constrained import _path, _table
+
+    # The two complete paths differ by one Q16 cost unit; a float shortcut
+    # outside its exact range could falsely choose the more costly path.
+    reverse = [
+        [],
+        [(0, 1000000000, 1000000001)],
+        [(0, 1000000000, 1000000000)],
+        [(1, 1000000000, 1000000000), (2, 1000000000, 1000000000)],
+    ]
+    table = _table(reverse, (3,), MCUArena(4096), multiplier=multiplier)
+    assert table[0][0] == 2000000000 + multiplier * 2000000000
+    assert _path(table, 0, (3,)) == (0, 2, 3)
