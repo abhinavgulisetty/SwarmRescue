@@ -2815,6 +2815,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--firmware-image", type=Path)
     parser.add_argument("--firmware-platform", choices=("qemu", "host"), default="qemu")
+    parser.add_argument(
+        "--firmware-strategy", choices=("auto", "jacobi"), default="auto",
+        help="adaptive exact solver, or legacy Jacobi for older firmware images",
+    )
     parser.add_argument("--firmware-tool-root", type=Path)
 
     parser.add_argument(
@@ -2992,6 +2996,7 @@ def main(argv: list[str] | None = None) -> int:
                     args.firmware_image,
                     arm=args.firmware_platform == "qemu",
                     tool_root=args.firmware_tool_root,
+                    strategy=args.firmware_strategy,
                 )
             )
             for _ in range(args.firmware_robots)

@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "frozen": true,
+  "frozen_at_utc": "2026-10-07T13:49:42.972693+00:00",
+  "scope": "Cold-start exact log-Q16 Bellman field solving; no rescue-quality or hardware-cycle superiority claim.",
+  "candidate": "auto",
+  "selection_rule": "Sticky nonterminal self-loop log <=6905: bound_diagonal. Otherwise CSR edges >12*N: gauss_seidel. Otherwise bound_ordered.",
+  "development_seeds": [
+    31000,
+    31001,
+    31002,
+    31003,
+    31004,
+    31005,
+    31006,
+    31007,
+    31008,
+    31009,
+    31010,
+    31011
+  ],
+  "evaluation_seeds": [
+    41000,
+    41001,
+    41002,
+    41003,
+    41004,
+    41005,
+    41006,
+    41007,
+    41008,
+    41009,
+    41010,
+    41011,
+    41012,
+    41013,
+    41014,
+    41015,
+    41016,
+    41017,
+    41018,
+    41019,
+    41020,
+    41021,
+    41022,
+    41023
+  ],
+  "families": [
+    "corridor",
+    "grid",
+    "sticky",
+    "rooms",
+    "dense",
+    "disconnected"
+  ],
+  "evaluation_cases": 144,
+  "convergence": "Exact equality to greatest integer Jacobi fixed point; all candidates must converge.",
+  "sweep_cap": 10000,
+  "priority_budget": "10000*N applied updates; queue-refresh backups included in timing and recorded separately.",
+  "primary_comparisons": [
+    "jacobi",
+    "gauss_seidel"
+  ],
+  "primary_metric": "Geometric mean end-to-end speedup with seed-cluster 95% bootstrap CI; disclose family regressions and failures.",
+  "timing": {
+    "compiler_flags": [
+      "-std=c99",
+      "-O2",
+      "-shared",
+      "-fPIC"
+    ],
+    "repeats": 5,
+    "minimum_batch_s": 0.008,
+    "cold_start": true,
+    "compilation_included": false,
+    "preprocessing_included": true,
+    "end_to_end_quantization_and_allocation_included": true
+  },
+  "confidence": {
+    "bootstrap_replicates": 2000,
+    "bootstrap_seed": 49381,
+    "unit": "seed cluster across six solver families"
+  },
+  "source_files_sha256": {
+    "firmware/log_lmdp.c": "93a489022c4558172d6b105da7a6704eeb10fc7a2b7dc9f53f365027b3e1c5b7",
+    "firmware/log_lmdp.h": "2937acbe7d4a5e3d44d93f748a08dde63d6bb86f778ecdd6cbe21fa8fa041a3d",
+    "firmware/log_lmdp_lut.h": "58199abbea984d221968768b41aa5d85467bf8b5550dc065e733b14d3346d192",
+    "mcu/log_lmdp.py": "445b7654ddfaa574834eb7bf01947042a2e4082f0a4dc80d9592924e6c93a463",
+    "mcu/native_log_lmdp.py": "9562856904c91ed9602729ac9fc59a702067dffe09d64113142e737cefc47d32",
+    "eval/solver_benchmark.py": "8942a30584fc5856733ff65ad1f1a15a8ad4076ebfaa3660f9d6dd0ea4a8a4df",
+    "ember/routing/lmdp.py": "1ddf72778dd32d8abb2def3d22d3ad477cc43e90d9a59fd8cd7b0a363e7fccad",
+    "eval/procedural.py": "4820c6491fabc579fd71f78ed6003440600f887a941aac1b07149d1fd135b2a5",
+    "cascade/floorplan.py": "0394235907d898e63b93103931ba421510dc34192021c6f92c4d52e7ed05f16c",
+    "cascade/params.py": "0f9bdb044bad9d38ca46d85b92cee27f2b4393f491cecc28e4affd2b1d305b24",
+    "cascade/rng.py": "5599f313f17ae9594d488a8f252812a66e00171db3bc51a97ec4de90c3f2e7db",
+    "cascade/extract.py": "64c04a4053b4cd2f1faaa05555a379acb78e0f7c03f9444b7314990bc87bd7c3"
+  },
+  "development_artifacts": [
+    "outputs/algorithm-research/development.json",
+    "outputs/algorithm-research/development-refined.json"
+  ],
+  "evaluation_policy": "No algorithm or model-generation changes after opening evaluation. Follow-up changes require a new protocol and new evaluation seeds."
+}

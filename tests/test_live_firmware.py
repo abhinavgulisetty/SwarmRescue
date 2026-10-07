@@ -11,6 +11,7 @@ from ember.physical_team import PhysicalRobotTeam
 from ember.regions import RegionRobotTeam
 from mcu import MCUArena
 from mcu.log_lmdp import solve_log_q16
+from mcu.native_log_lmdp import solve_native_log_q16
 from mcu.runtime import FirmwareBackend, FirmwareTransportError, build_runtime
 from tests.test_log_lmdp import _chain
 from tests.test_robot_state import _graph
@@ -109,6 +110,63 @@ def test_robot_state_uses_the_firmware_solution(host_image):
         result = robot.plan(_chain(20))
         assert result.fixed_point and backend.requests == 1
         assert result is robot.routing
+
+
+@pytest.mark.parametrize("strategy", ["auto", "bound_diagonal", "gauss_seidel"])
+def test_live_accelerated_service_preserves_fields_and_rejects_bad_strategy(
+    host_image, strategy
+):
+    from eval.solver_benchmark import make_model
+
+    model = make_model(31001, "grid")
+    reference = solve_native_log_q16(model)
+    with FirmwareBackend(host_image, strategy=strategy) as backend:
+        result = backend.solve(model)
+        assert result.fixed_point
+        np.testing.assert_array_equal(
+            result.negative_log_desirability, reference.negative_log_desirability
+        )
+        assert backend.requests == 1 and backend.transport_bytes > 0
+        with pytest.raises(FirmwareTransportError, match="status 2"):
+            backend._rpc(3, struct.pack("<IIII", 1, 0, 1, 99))
+        assert backend.solve(_chain(20)).route(0) == tuple(range(20))
+
+
+def test_auto_arm_uart_handles_sticky_and_full_capacity_models(tmp_path):
+    from eval.solver_benchmark import make_model
+
+    root = os.environ.get("EMBER_ARM_TOOL_ROOT")
+    if not root and not (
+        shutil.which("arm-none-eabi-gcc") and shutil.which("qemu-system-arm")
+    ):
+        pytest.skip("Cortex-M4 tools unavailable")
+    executable, metadata = build_runtime(tmp_path, arm=True, tool_root=root)
+    assert metadata["kernel_service_ram_bytes"] < 200 * 1024
+    full = _chain(2048)
+    # Fill every declared edge slot with four equal outgoing transitions.
+    from ember.routing import LMDPConfig, LMDPModel
+
+    full = LMDPModel(
+        np.arange(2049) * 4,
+        np.repeat(full.col_idx, 4),
+        np.full(8192, 0.25),
+        full.state_cost,
+        full.exit_mask,
+        full.death_mask,
+        LMDPConfig(max_sweeps=10000),
+    )
+    with FirmwareBackend(
+        executable, arm=True, tool_root=root, strategy="auto"
+    ) as backend:
+        for model in (make_model(31001, "sticky"), full):
+            reference = solve_native_log_q16(model)
+            result = backend.solve(model)
+            assert result.fixed_point
+            np.testing.assert_array_equal(
+                result.negative_log_desirability, reference.negative_log_desirability
+            )
+            for start in (0, model.n_states // 2, model.n_states - 1):
+                assert result.route(start) == reference.route(start)
 
 
 def test_arm_uart_runtime_when_toolchain_available(tmp_path):

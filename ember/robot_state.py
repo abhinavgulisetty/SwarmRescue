@@ -289,6 +289,16 @@ class RobotState:
         required = 18 * model.n_states + 8 * model.col_idx.size + 12
         if self._routing_offset + required > self.arena.capacity:
             raise MCUOutOfMemory("robot routing workspace exceeds its arena")
+        strategy = "jacobi"
+        if native and self.routing_backend is None:
+            from mcu.native_log_lmdp import native_workspace_words
+
+            words = native_workspace_words(model.n_states, model.col_idx.size, "auto")
+            accelerated_required = required + 4 * (words - model.n_states)
+            # Choose before touching old policy buffers. Oversized scratch uses
+            # the exact compiled Jacobi fallback within the existing arena.
+            if self._routing_offset + accelerated_required <= self.arena.capacity:
+                strategy = "auto"
         previous_used = self.arena.used
         self.arena.used = self._routing_offset
         try:
@@ -297,7 +307,9 @@ class RobotState:
             elif native:
                 from mcu.native_log_lmdp import solve_native_log_q16
 
-                self.routing = solve_native_log_q16(model, arena=self.arena)
+                self.routing = solve_native_log_q16(
+                    model, arena=self.arena, strategy=strategy
+                )
             else:
                 self.routing = solve_log_q16(model, arena=self.arena)
         except Exception:

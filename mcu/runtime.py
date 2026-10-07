@@ -21,6 +21,7 @@ import numpy as np
 
 from mcu import INT32_MAX, MCUArena
 from mcu.log_lmdp import LogQ16Model, LogQ16Solution, _array
+from mcu.native_log_lmdp import STRATEGIES
 
 MAX_NODES = 2048
 MAX_EDGES = 8192
@@ -97,6 +98,7 @@ def build_runtime(output, *, arm=False, tool_root=None):
         ).stdout.splitlines()[0],
         "whole_robot_firmware": False,
         "hardware_cycles_measured": False,
+        "routing_strategies": list(STRATEGIES),
     }
     if arm:
         size = shutil.which("arm-none-eabi-size", path=environment["PATH"])
@@ -135,7 +137,18 @@ class FirmwareBackend:
     solve substitutes for a failed or capped firmware request.
     """
 
-    def __init__(self, executable, *, arm=False, tool_root=None, timeout_s=60):
+    def __init__(
+        self,
+        executable,
+        *,
+        arm=False,
+        tool_root=None,
+        timeout_s=60,
+        strategy="jacobi",
+    ):
+        if strategy not in STRATEGIES:
+            raise ValueError("unknown firmware routing strategy")
+        self.strategy = strategy
         if not np.isfinite(timeout_s) or timeout_s <= 0:
             raise ValueError("firmware timeout must be finite and positive")
         if os.name != "posix":
@@ -147,6 +160,14 @@ class FirmwareBackend:
         self.metadata = (
             json.loads(metadata_path.read_text()) if metadata_path.exists() else {}
         )
+        self.metadata["routing_strategy"] = strategy
+        if strategy != "jacobi" and strategy not in self.metadata.get(
+            "routing_strategies", ()
+        ):
+            raise ValueError(
+                "firmware does not advertise this strategy; rebuild the image "
+                "or select jacobi"
+            )
         digest = hashlib.sha256(self.executable.read_bytes()).hexdigest()
         self.image_sha256 = digest
         if self.metadata.get("executable_sha256", digest) != digest:
@@ -283,7 +304,7 @@ class FirmwareBackend:
             raise FirmwareTransportError("firmware response checksum failed")
         if status:
             raise FirmwareTransportError(f"firmware rejected request: status {status}")
-        if command == 1:
+        if command in (1, 3):
             self.transport_bytes += len(request) + _HEADER.size + len(response)
         return response
 
@@ -305,6 +326,10 @@ class FirmwareBackend:
         payload = struct.pack(
             "<III", model.n_states, len(model.col_idx), model.config.max_sweeps
         )
+        command = 1
+        if self.strategy != "jacobi":
+            command = 3
+            payload += struct.pack("<I", STRATEGIES[self.strategy])
         payload += b"".join(
             array.astype("<i4", copy=False).tobytes()
             if array.dtype == np.int32
@@ -313,7 +338,7 @@ class FirmwareBackend:
         )
         with self.lock:
             started = time.monotonic()
-            response = self._rpc(1, payload)
+            response = self._rpc(command, payload)
             self.wall_time_s += time.monotonic() - started
             self.requests += 1
         n = model.n_states

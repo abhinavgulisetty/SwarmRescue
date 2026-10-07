@@ -28,7 +28,9 @@ prioritized sweeping, path-bound prioritized sweeping, and exact conditional
 self-loop updates in path-bound order. An eighth `auto` strategy chooses
 natural-order Gauss–Seidel when average CSR degree exceeds 12 and no
 nonterminal self-loop has negative log probability at most 6905 Q16 units;
-otherwise it chooses the conditional solver. This rule is chosen using the
+otherwise it chooses bound-ordered updates, with conditional updates when
+a sticky self-loop exists. This avoids a per-row self-loop scan on ordinary
+graphs. This rule is chosen using the
 development set, before evaluation. All share the
 same row operator, LUT interpolation, saturation, absorbing boundary masks,
 edge folding order, and deterministic policy extraction.

@@ -18,6 +18,7 @@ COMMANDS = {
     "tactical": "ember.demo",
     "view": "cascade.view",
     "evaluate": "eval.procedural",
+    "solver-benchmark": "eval.solver_benchmark",
     "range-evaluation": "eval.range_delivery",
     "firmware-replay": "eval.firmware_replay",
     "firmware-build": "mcu.runtime",
@@ -50,7 +51,7 @@ def doctor():
             np.zeros(3, bool),
             LMDPConfig(),
         )
-        result = solve_native_log_q16(model)
+        result = solve_native_log_q16(model, strategy="auto")
         if not result.fixed_point or result.route(0) != (0, 1, 2):
             raise RuntimeError("native integer smoke route failed")
         return "C kernel compiled and returned the expected route"

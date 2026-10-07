@@ -3,11 +3,12 @@
 #include "log_lmdp.h"
 #define MAX_N 2048
 #define MAX_E 8192
-#define MAX_PAYLOAD (16u+10u*MAX_N+8u*MAX_E)
+#define MAX_PAYLOAD (20u+10u*MAX_N+8u*MAX_E)
+#define MAX_WORK (5*MAX_N+1+MAX_E)
 #define REQUEST_MAGIC 0x51524d45u
 #define RESPONSE_MAGIC 0x53524d45u
 static int32_t rows[MAX_N+1], columns[MAX_E], passive[MAX_E], cost[MAX_N];
-static int32_t values_a[MAX_N], values_b[MAX_N];
+static int32_t values_a[MAX_N], workspace[MAX_WORK];
 static uint8_t exits[MAX_N], deaths[MAX_N];
 extern int transport_get(void);
 extern void transport_put(uint8_t value);
@@ -71,12 +72,14 @@ int routing_service(void) {
         if (command==2 && length==0 && expected_crc==0) {
             response(sequence,0,0,0);return 0;
         }
-        uint32_t n=0,e=0,limit=0;
-        int valid=command==1 && length>=12;
+        uint32_t n=0,e=0,limit=0,strategy=0;
+        int valid=(command==1 || command==3) && length>=(command==3?16u:12u);
         if (valid) {
             n=data_u32();e=data_u32();limit=data_u32();
+            if (command==3) strategy=data_u32();
             valid=n>0 && n<=MAX_N && e<=MAX_E && limit>0 && limit<=10000
-                && length==16+10*n+8*e;
+                && strategy<=EMBER_LOG_AUTO
+                && length==(command==3?20u:16u)+10*n+8*e;
         }
         if (valid) {
             for (uint32_t i=0;i<=n;i++) rows[i]=(int32_t)data_u32();
@@ -92,19 +95,13 @@ int routing_service(void) {
             response(sequence,1,0,0);continue;
         }
         if (!valid) { response(sequence,2,0,0);continue; }
-        int32_t *current=values_a,*next=values_b,*swap;
-        for (uint32_t i=0;i<n;i++) current[i]=exits[i]?0:INT32_MAX;
-        uint32_t sweeps=0,fixed=0,status=0;
-        for (uint32_t sweep=1;sweep<=limit;sweep++) {
-            if (ember_log_q16_sweep((int32_t)n,(int32_t)e,rows,columns,passive,cost,current,exits,deaths,next)) {
-                status=3;break;
-            }
-            fixed=1;
-            for (uint32_t i=0;i<n;i++) if (current[i]!=next[i]) fixed=0;
-            swap=current;current=next;next=swap;sweeps=sweep;
-            if (fixed) break;
+        int32_t *current=values_a;
+        ember_log_stats stats;
+        if (ember_log_q16_solve((int32_t)n,(int32_t)e,rows,columns,passive,cost,
+                exits,deaths,(int32_t)limit,(int32_t)strategy,current,workspace,MAX_WORK,&stats)) {
+            response(sequence,3,0,0);continue;
         }
-        if (status) { response(sequence,status,0,0);continue; }
+        uint32_t sweeps=stats.sweeps,fixed=stats.fixed_point;
         uint32_t crc=output_crc_u32(0xffffffffu,sweeps);
         crc=output_crc_u32(crc,fixed);
         for (uint32_t i=0;i<n;i++) crc=output_crc_u32(crc,(uint32_t)current[i]);

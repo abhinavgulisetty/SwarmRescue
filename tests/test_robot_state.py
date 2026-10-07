@@ -113,6 +113,35 @@ def test_replanning_reuses_the_robot_arena_without_growing_storage() -> None:
     assert robot.arena.high_water < robot.arena.capacity
 
 
+def test_native_acceleration_falls_back_before_overwriting_a_tight_arena():
+    from ember.routing import build_lmdp
+    from mcu import MCUArena
+    from mcu.native_log_lmdp import native_workspace_words, solve_native_log_q16
+
+    graph = _graph()
+    model = build_lmdp(graph, np.full(3, 0.3), (2,))
+    sizing = RobotState(0, graph, np.zeros(3))
+    required = 18 * model.n_states + 8 * model.col_idx.size + 12
+    capacity = sizing.arena.used + required
+    robot = RobotState(0, graph, np.zeros(3), arena=MCUArena(capacity))
+    extra = 4 * (
+        native_workspace_words(model.n_states, model.col_idx.size, "auto")
+        - model.n_states
+    )
+    assert extra > 0
+    result = robot.plan(model, native=True)
+    reference = solve_native_log_q16(model)
+    assert result.fixed_point and result.route(0) == (0, 1, 2)
+    np.testing.assert_array_equal(
+        result.negative_log_desirability, reference.negative_log_desirability
+    )
+    assert robot.arena.used <= capacity
+    used = robot.arena.used
+    for _ in range(3):
+        assert robot.plan(model, native=True).route(0) == (0, 1, 2)
+        assert robot.arena.used == used
+
+
 @pytest.mark.parametrize("nodes", (1, 3, 19, 4000))
 def test_compact_storage_estimate_matches_actual_arena_and_routes(nodes):
     from ember.gbp import gbp_storage_bytes

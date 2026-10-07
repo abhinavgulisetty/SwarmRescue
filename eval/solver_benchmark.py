@@ -219,7 +219,9 @@ def benchmark_case(model, seed, family):
             "selected_strategy": stats.strategy,
             "kernel": kernel_timing,
             "end_to_end": end_to_end,
-            "arena_bytes": storage.high_water + values.nbytes + scratch.nbytes,
+            "arena_bytes": ((storage.high_water + 3) // 4) * 4
+            + values.nbytes
+            + scratch.nbytes,
         }
     return {
         "seed": seed,
@@ -241,7 +243,16 @@ def summarize(cases, candidate="auto"):
             for row in cases
             if row["results"][candidate]["valid"] and row["results"][baseline]["valid"]
         ]
-        comparison = {"paired_cases": len(rows), "total_cases": len(cases)}
+        comparison = {
+            "paired_cases": len(rows),
+            "total_cases": len(cases),
+            "candidate_failures": sum(
+                not row["results"][candidate]["valid"] for row in cases
+            ),
+            "baseline_failures": sum(
+                not row["results"][baseline]["valid"] for row in cases
+            ),
+        }
         if not rows:
             summary[baseline] = comparison
             continue
@@ -307,7 +318,36 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
     seeds = DEVELOPMENT_SEEDS if args.split == "development" else EVALUATION_SEEDS
-    source = Path(__file__).resolve().parents[1] / "firmware/log_lmdp.c"
+    root = Path(__file__).resolve().parents[1]
+    tracked = (
+        "firmware/log_lmdp.c",
+        "firmware/log_lmdp.h",
+        "firmware/log_lmdp_lut.h",
+        "mcu/log_lmdp.py",
+        "mcu/native_log_lmdp.py",
+        "eval/solver_benchmark.py",
+        "ember/routing/lmdp.py",
+        "eval/procedural.py",
+        "cascade/floorplan.py",
+        "cascade/params.py",
+        "cascade/rng.py",
+        "cascade/extract.py",
+    )
+    identities = {
+        name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in tracked
+    }
+    protocol_path = Path(__file__).with_name("solver_protocol.json")
+    protocol = json.loads(protocol_path.read_text()) if protocol_path.exists() else None
+    if args.split == "evaluation":
+        if not protocol or not protocol.get("frozen"):
+            raise RuntimeError("evaluation requires a committed frozen solver protocol")
+        if (
+            protocol["source_files_sha256"] != identities
+            or protocol["evaluation_seeds"] != list(seeds)
+            or protocol["families"] != list(FAMILIES)
+            or protocol["candidate"] != "auto"
+        ):
+            raise RuntimeError("implementation or inputs differ from frozen evaluation")
     cases = []
     for seed in seeds:
         for family in FAMILIES:
@@ -318,7 +358,11 @@ def main(argv=None):
         "candidate": "auto",
         "seeds": list(seeds),
         "families": list(FAMILIES),
-        "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        "source_sha256": identities["firmware/log_lmdp.c"],
+        "source_files_sha256": identities,
+        "protocol_sha256": hashlib.sha256(protocol_path.read_bytes()).hexdigest()
+        if protocol
+        else None,
         "platform": platform.platform(),
         "processor": platform.processor(),
         "compiler": subprocess.check_output(
@@ -331,6 +375,11 @@ def main(argv=None):
         "summary": summarize(cases),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    if any(
+        hashlib.sha256((root / name).read_bytes()).hexdigest() != digest
+        for name, digest in identities.items()
+    ):
+        raise RuntimeError("benchmark sources changed during the comparison")
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report["summary"], indent=2), flush=True)
     return 0

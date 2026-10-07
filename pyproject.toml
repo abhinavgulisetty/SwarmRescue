@@ -1,6 +1,6 @@
 [project]
 name = "swarmrescue"
-version = "0.3.1"
+version = "0.4.0"
 description = "EMBER -- edge-native message-passing for Bellman-egress routing"
 requires-python = ">=3.11,<3.13"
 dependencies = [
@@ -37,7 +37,7 @@ packages = ["cascade", "hazard", "ember", "ember.routing", "eval", "mcu", "firmw
 firmware = ["*.c", "*.h"]
 "firmware.replay" = ["*.c", "*.ld"]
 "firmware.runtime" = ["*.c", "*.h", "*.ld"]
-eval = ["frozen_protocol.json"]
+eval = ["frozen_protocol.json", "solver_protocol.json"]
 swarmrescue = ["runtime-lock.txt", "templates/*.html"]
 
 [tool.pytest.ini_options]

@@ -337,8 +337,9 @@ int ember_log_q16_solve(
             for (int32_t edge = rows[i]; edge < rows[i + 1]; ++edge)
                 if (columns[edge] == i && passive[edge] <= 6905) sticky = 1;
         }
-        strategy = !sticky && (int64_t)e > 12 * (int64_t)n
-            ? EMBER_LOG_GAUSS_SEIDEL : EMBER_LOG_BOUND_DIAGONAL;
+        strategy = sticky ? EMBER_LOG_BOUND_DIAGONAL
+            : ((int64_t)e > 12 * (int64_t)n
+                ? EMBER_LOG_GAUSS_SEIDEL : EMBER_LOG_BOUND_ORDERED);
     }
     stats->strategy = (uint32_t)strategy;
     for (int32_t i = 0; i < n; ++i) values[i] = exits[i] ? 0 : INT32_MAX;
