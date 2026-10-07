@@ -17,6 +17,7 @@ def installed_package(tmp_path, monkeypatch):
         "firmware/log_lmdp.c": b"/* integer kernel */\n",
         "swarmrescue/cli.py": b"# entrypoint\n",
         "swarmrescue/runtime-lock.txt": b"numpy==2.5.1\n",
+        "swarmrescue-0.2.0.dist-info/WHEEL": b"Wheel-Version: 1.0\n",
     }
     for name, payload in content.items():
         path = root / name
@@ -28,6 +29,24 @@ def installed_package(tmp_path, monkeypatch):
     monkeypatch.setattr(manifest, "distribution", lambda name: package)
     monkeypatch.setattr(manifest, "__file__", str(root / "ember/manifest.py"))
     return root, package
+
+
+def test_source_build_inventory_does_not_change_checkout_source_identity(
+    tmp_path, monkeypatch
+):
+    root, package = installed_package(tmp_path, monkeypatch)
+    package.files.remove("swarmrescue-0.2.0.dist-info/WHEEL")
+    package.files.append("swarmrescue.egg-info/PKG-INFO")
+    assert manifest.installed_source_files() is None
+    monkeypatch.setattr(manifest, "_git_state", lambda root: ("a" * 40, False, None))
+    path = root / "swarmrescue/templates/cases.html"
+    path.parent.mkdir(parents=True)
+    path.write_text("newly inventoried source template")
+    before = manifest.capture_manifest(7, {}, {}, root=root)
+    package.files.append("swarmrescue/templates/cases.html")
+    after = manifest.capture_manifest(7, {}, {}, root=root)
+    assert before.source_kind == after.source_kind == "git"
+    assert before.source_identity == after.source_identity
 
 
 def test_installed_manifest_tracks_shipped_sources_instead_of_cwd_git(

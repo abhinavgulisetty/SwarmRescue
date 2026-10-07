@@ -129,6 +129,11 @@ def installed_source_files():
     except PackageNotFoundError:
         return None
     names = {str(item) for item in package.files or ()}
+    # A source build creates egg-info with a changing SOURCES.txt inventory.
+    # That inventory is not an installed wheel: checkout provenance must stay
+    # tied to Git even when packaging runs alongside a physical mission.
+    if not any(name.endswith(".dist-info/WHEEL") for name in names):
+        return None
     required = {"ember/manifest.py", "firmware/log_lmdp.c", "swarmrescue/cli.py"}
     if not required <= names:
         return None
