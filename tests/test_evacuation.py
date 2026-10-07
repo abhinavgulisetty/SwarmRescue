@@ -17,7 +17,7 @@ from ember.evacuation import (
 )
 
 
-def _scene(*, wall=False, count=1):
+def _scene(*, wall=False, count=1, corner=False):
     root = ET.Element("mujoco")
     ET.SubElement(root, "option", timestep="0.002", integrator="implicitfast")
     world = ET.SubElement(root, "worldbody")
@@ -26,7 +26,12 @@ def _scene(*, wall=False, count=1):
     )
     if wall:
         ET.SubElement(
-            world, "geom", name="g_wall_test", type="box", size="0.1 3 1", pos="0.9 1 1"
+            world,
+            "geom",
+            name="g_wall_test",
+            type="box",
+            size="0.4 0.5 1" if corner else "0.1 3 1",
+            pos="0.9 1.4 1" if corner else "0.9 1 1",
         )
     for body in survivor_bodies(np.array([[1.8, 1 + i, 0] for i in range(count)])):
         world.append(body)
@@ -64,6 +69,46 @@ def test_wall_contacts_prevent_a_false_rescue():
         team.observe(data, (step + 1) * 0.002)
     assert team.positions(data)[0, 0] > 1.0
     assert not team.done and team.rescued == 0
+
+
+def test_survivor_follows_a_tight_corner_without_cutting_through_a_wall():
+    model, data, team = _scene(wall=True, corner=True)
+    team.begin(data, 0, 0, np.array([1.8, 1, 0.14]), 0)
+    robot = np.array([1.8, 1, 0.14])
+    targets = [np.array([1.6, 0.6, 0.14]), np.array([-1, 0.6, 0.14])]
+    target = 0
+    waiting = False
+    for step in range(15000):
+        delta = targets[target] - robot
+        distance = np.linalg.norm(delta[:2])
+        if not waiting and distance > 0.005:
+            robot += delta / max(distance, 1e-12) * min(distance, 0.35 * 0.002)
+        elif distance <= 0.005 and target == 0:
+            target = 1
+        waiting = team.control(data, robot[None, :])[0]
+        mujoco.mj_step(model, data)
+        team.observe(data, (step + 1) * 0.002)
+        if team.done:
+            break
+    assert team.done and team.positions(data)[0, 0] <= -0.5
+
+
+def test_rescue_is_revoked_if_physics_pushes_the_survivor_back_inside():
+    model, data, team = _scene()
+    team.begin(data, 0, 0, np.array([1.8, 1, 0.14]), 0)
+    for step in range(6000):
+        patient = team.positions(data)[0]
+        team.control(data, np.array([[max(-1, patient[0] - 0.45), 1, 0.14]]))
+        mujoco.mj_step(model, data)
+        team.observe(data, (step + 1) * 0.002)
+        if team.done:
+            break
+    assert team.done
+    for step in range(400):
+        data.xfrc_applied[team.body_ids[0], 0] = 165
+        mujoco.mj_step(model, data)
+        team.observe(data, 15 + step * 0.002)
+    assert team.rescued == 0
 
 
 def test_waiting_survivor_never_counts_as_rescued_even_if_outside():

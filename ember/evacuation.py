@@ -185,6 +185,7 @@ class EvacuationTeam:
         self.contact_time_s = np.full(count, np.inf)
         self.evacuation_time_s = np.full(count, np.inf)
         self.trails = [deque() for _ in range(count)]
+        self.last_passed_point = self.initial_positions.copy()
         self.trail_high_water = 0
         self.maximum_gap_m = 0.0
 
@@ -262,16 +263,31 @@ class EvacuationTeam:
                 if len(trail) >= cfg.maximum_trail_points:
                     raise RuntimeError("escort breadcrumb capacity exhausted")
                 trail.append(robot.copy())
-            while (
-                len(trail) > 1
-                and np.linalg.norm(trail[0][:2] - points[patient, :2])
-                <= cfg.waypoint_radius_m
-            ):
-                trail.popleft()
+            while len(trail) > 1:
+                incoming = trail[0][:2] - self.last_passed_point[patient, :2]
+                outgoing = trail[1][:2] - trail[0][:2]
+                lengths = float(np.linalg.norm(incoming) * np.linalg.norm(outgoing))
+                turning = (
+                    lengths > 1e-12 and float(incoming @ outgoing) / lengths < 0.985
+                )
+                radius = (
+                    min(cfg.waypoint_radius_m, 0.035)
+                    if turning
+                    else cfg.waypoint_radius_m
+                )
+                if np.linalg.norm(trail[0][:2] - points[patient, :2]) > radius:
+                    break
+                self.last_passed_point[patient] = trail.popleft()
             self.trail_high_water = max(self.trail_high_water, len(trail))
             delta = trail[0][:2] - points[patient, :2]
             distance = float(np.linalg.norm(delta))
-            desired = delta / max(distance, 1e-12) * min(cfg.speed_m_s, 2 * distance)
+            # Intermediate breadcrumbs mark curvature, not stopping points.
+            # Braking at each 10 cm sample makes the configured walking speed
+            # unattainable even on a straight corridor. Slow only at the tail.
+            speed = (
+                cfg.speed_m_s if len(trail) > 1 else min(cfg.speed_m_s, 2 * distance)
+            )
+            desired = delta / max(distance, 1e-12) * speed
             adr = self.dof_addresses[patient]
             velocity = np.asarray(data.qvel[adr : adr + 2])
             acceleration = (desired - velocity) / cfg.velocity_time_constant_s

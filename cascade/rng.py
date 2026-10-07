@@ -26,6 +26,7 @@ STAGES: tuple[str, ...] = (
     "survivors",
     "search",
     "radio_loss",
+    "contact",
 )
 
 _STAGE_INDEX: dict[str, int] = {name: i for i, name in enumerate(STAGES)}

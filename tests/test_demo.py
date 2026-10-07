@@ -67,6 +67,40 @@ def test_cli_returns_success_for_an_accepted_run(monkeypatch) -> None:
     assert demo.main(["--no-render"]) == 0
 
 
+def test_rescue_requires_every_physical_survivor_to_be_evacuated():
+    result = replace(
+        _result("arrived", "arrived", "arrived"),
+        evacuation_enabled=True,
+        live_disaster=True,
+        distributed_physical=True,
+        failed_members=("beam",),
+        survivors_hidden=3,
+        survivors_localized=3,
+        survivors_contacted=3,
+        survivors_evacuated=3,
+        routing_converged=True,
+        geometry_revisions=1,
+        peer_factors=1,
+        robot_interior_depth_m=(-1.0, -1.0, -1.0),
+    )
+    assert result.accepted
+    assert not replace(result, survivors_evacuated=2).accepted
+    assert not replace(result, survivors_contacted=2).accepted
+    assert not replace(result, survivors_localized=2).accepted
+    assert not replace(result, geometry_revisions=0).accepted
+    assert not replace(result, robot_interior_depth_m=(-1.0, 0.0, -1.0)).accepted
+
+
+@pytest.mark.parametrize(
+    "args",
+    [["--evacuate"], ["--mission-horizon-s", "nan"], ["--mission-horizon-s", "601"]],
+)
+def test_bad_rescue_configuration_rejected_before_scene_construction(args):
+    with pytest.raises(SystemExit) as raised:
+        demo.main(args)
+    assert raised.value.code == 2
+
+
 def test_compact_cli_requires_the_live_disaster_mode() -> None:
     with pytest.raises(SystemExit) as raised:
         demo.main(["--compact", "--no-render"])

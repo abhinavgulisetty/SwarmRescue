@@ -27,6 +27,17 @@ def install(wheel, prefix, *, tool_root=None):
     with zipfile.ZipFile(wheel) as archive:
         lock = archive.read("swarmrescue/runtime-lock.txt")
     prefix.mkdir(parents=True, exist_ok=True)
+    (prefix / "deployment.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "ready": False,
+                "status": "installing",
+            },
+            indent=2,
+        )
+        + "\n"
+    )
     (prefix / "runtime-lock.txt").write_bytes(lock)
     environment = prefix / "venv"
     python = environment / "bin/python"
@@ -121,11 +132,16 @@ def install(wheel, prefix, *, tool_root=None):
             )
             firmware["startup_check"] = json.loads(probe.stdout)
     (prefix / "doctor.json").write_text(json.dumps(health, indent=2) + "\n")
-    launcher = write_launcher(prefix, cli, firmware=firmware, tool_root=tool_root)
+    supports_rescue = "rescue" in health.get("supported_commands", ())
+    launcher = write_launcher(
+        prefix, cli, firmware=firmware, tool_root=tool_root, evacuate=supports_rescue
+    )
     report = {
         "schema_version": 1,
         "target": "local-simulator-and-cortex-m4" if firmware else "local-simulator",
         "ready": health["ready"],
+        "status": "ready",
+        "workflow": "search-contact-evacuation" if supports_rescue else "search-only",
         "package_version": health["package_version"],
         "wheel": str(wheel),
         "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
@@ -142,7 +158,7 @@ def install(wheel, prefix, *, tool_root=None):
     return report
 
 
-def write_launcher(prefix, cli, *, firmware=None, tool_root=None):
+def write_launcher(prefix, cli, *, firmware=None, tool_root=None, evacuate=True):
     """Write a standalone POSIX launcher with literal paths and forwarded options."""
     command = [
         str(cli),
@@ -165,6 +181,8 @@ def write_launcher(prefix, cli, *, firmware=None, tool_root=None):
         "--report",
         str(prefix / "latest-mission.json"),
     ]
+    if evacuate:
+        command.append("--evacuate")
     if firmware:
         command += [
             "--firmware-robots",

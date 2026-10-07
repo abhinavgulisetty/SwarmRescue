@@ -187,6 +187,10 @@ def hazard_route_change_allowed(
     return old_cost > 0 and new_cost <= (1 - min_gain) * old_cost
 
 
+class PhysicalRouteUnavailableError(RuntimeError):
+    """The current model has no executable route to the requested goal."""
+
+
 def plan_belief_route(
     graph: TraversabilityGraph,
     domain: HazardDomain,
@@ -356,7 +360,9 @@ def plan_belief_route(
         )
         route_nodes = list(constrained.route)
     if not route_nodes:
-        raise RuntimeError("the belief-aware LMDP could not reach the physical goal")
+        raise PhysicalRouteUnavailableError(
+            "the belief-aware LMDP could not reach the physical goal"
+        )
 
     route = positions[route_nodes]
     if np.linalg.norm(route[0] - start) > 0.05:

@@ -31,11 +31,19 @@ from time import perf_counter
 import mujoco
 import numpy as np
 
+from ember.evacuation import (
+    EvacuationConfig,
+    EvacuationTeam,
+    NoEvacuationRouteError,
+    exterior_route,
+    survivor_bodies,
+)
 from ember.geometry_sensing import radio_wall_counts
 from ember.localization import RSSIConfig, rssi_to_range
 from ember.manifest import capture_manifest, write_runtime_source_bundle
 from ember.physical import (
     PhysicalRouteResult,
+    PhysicalRouteUnavailableError,
     hazard_route_change_allowed,
     plan_belief_route,
 )
@@ -433,6 +441,26 @@ class DemoResult:
     robot_exposure_proxy: tuple[float, ...] = ()
     robot_search_exposure_proxy: tuple[float, ...] = ()
     robot_arrival_time_s: tuple[float | None, ...] = ()
+    evacuation_enabled: bool = False
+    survivor_dynamics: str | None = None
+    survivors_contacted: int = 0
+    survivors_evacuated: int = 0
+    survivor_contact_time_s: tuple[float | None, ...] = ()
+    survivor_evacuation_time_s: tuple[float | None, ...] = ()
+    survivor_distance_m: tuple[float, ...] = ()
+    survivor_positions_m: tuple[tuple[float, float, float], ...] = ()
+    survivor_exposure_proxy: tuple[float, ...] = ()
+    survivor_mass_kg: float = 0.0
+    survivor_sliding_friction: float = 0.0
+    survivor_height_m: float = 0.0
+    survivor_escort_robot: tuple[int, ...] = ()
+    evacuation_footprint_m: tuple[float, float, float, float] | None = None
+    escort_trail_high_water: int = 0
+    maximum_escort_gap_m: float = 0.0
+    evacuation_plans: int = 0
+    terminal_homing_plans: int = 0
+    blocked_evacuation_plans: int = 0
+    mission_horizon_s: float = LIVE_DISASTER_SECONDS
 
     @property
     def arrived(self) -> int:
@@ -465,6 +493,22 @@ class DemoResult:
 
     @property
     def accepted(self) -> bool:
+        if self.evacuation_enabled:
+            return (
+                self.live_disaster
+                and self.distributed_physical
+                and self.n_robots >= 3
+                and bool(self.failed_members)
+                and self.survivors_localized == self.survivors_hidden == self.n_robots
+                and self.survivors_contacted
+                == self.survivors_evacuated
+                == self.n_robots
+                and self.routing_converged
+                and self.geometry_revisions >= 1
+                and self.peer_factors > 0
+                and len(self.robot_interior_depth_m) == self.n_robots
+                and all(depth <= -0.35 for depth in self.robot_interior_depth_m)
+            )
         if not self.live_disaster:
             return self.succeeded
         if self.distributed_physical:
@@ -499,7 +543,12 @@ class DemoResult:
 
     def report(self) -> str:
         lines = [
-            f"seed {self.seed}: {self.arrived}/{self.n_robots} robots arrived",
+            (
+                f"seed {self.seed}: {self.survivors_evacuated}/"
+                f"{self.survivors_hidden} survivors evacuated"
+                if self.evacuation_enabled
+                else f"seed {self.seed}: {self.arrived}/{self.n_robots} robots arrived"
+            ),
             f"  acceptance             : {'PASS' if self.accepted else 'FAIL'}",
             f"  planner says reachable : {sorted(self.planner_reachable)}",
             f"  swarm actually visited : {sorted(self.storeys_reached)}",
@@ -508,6 +557,16 @@ class DemoResult:
         ]
         for name, storey, goal, status in self.per_robot:
             lines.append(f"    {name:<8} storey {storey} -> {goal}   {status}")
+        if self.evacuation_enabled:
+            lines.append(
+                f"  physical evacuation    : {self.survivors_evacuated}/"
+                f"{self.survivors_hidden} "
+                f"survivors outside · {self.survivors_contacted} local contacts"
+            )
+            lines.append(
+                f"  survivor model         : {self.survivor_dynamics} · "
+                f"{self.survivor_mass_kg:.0f} kg · {self.survivor_height_m:.2f} m"
+            )
         if self.robot_progress:
             lines.append(
                 "  route completion       : "
@@ -646,7 +705,22 @@ def run_demo(
     sensing_interval_s: float = 0.0,
     hazard_switch_min_gain: float = 0.15,
     routing_backends: tuple = (),
+    evacuate: bool = False,
+    mission_horizon_s: float | None = None,
 ) -> DemoResult:
+    if evacuate and not distributed_physical:
+        raise ValueError("physical evacuation requires distributed live-disaster mode")
+    mission_horizon_s = (
+        (180.0 if evacuate else LIVE_DISASTER_SECONDS)
+        if mission_horizon_s is None
+        else mission_horizon_s
+    )
+    if (
+        not np.isfinite(mission_horizon_s)
+        or not LIVE_DISASTER_SECONDS <= mission_horizon_s <= 600
+    ):
+        raise ValueError("mission horizon must be finite in 48..600 seconds")
+    evacuation_config = EvacuationConfig()
     if routing_backends and (
         not distributed_physical
         or not region_cells
@@ -690,6 +764,17 @@ def run_demo(
         raise ValueError("periodic sensing requires distributed physical mode")
     if distributed_physical:
         params = collision_aware_params(params, RobotSpec())
+    if evacuate:
+        params = replace(
+            params,
+            traversability=replace(
+                params.traversability,
+                min_clearance_m=max(
+                    params.traversability.min_clearance_m,
+                    evacuation_config.height_m + 0.05,
+                ),
+            ),
+        )
     building = params.building
     plan = build_floorplan(seed, building)
     structure = build_structure(plan)
@@ -768,6 +853,8 @@ def run_demo(
         )
 
     bodies, actuators = swarm_bodies(assignments)
+    if evacuate:
+        bodies.extend(survivor_bodies(survivor_sites, evacuation_config))
     final_xml = (
         to_mjcf(
             structure,
@@ -835,6 +922,13 @@ def run_demo(
         raise RuntimeError(f"swarm did not settle within {settle_steps} physics steps")
     print(f"[cascade] swarm settled in {settle_steps} steps")
     start_positions = swarm.positions(data).copy()
+    evacuation = (
+        EvacuationTeam(
+            model, data, len(survivor_sites), plan.footprint, config=evacuation_config
+        )
+        if evacuate
+        else None
+    )
     physical_team = (
         (RegionRobotTeam if region_cells else PhysicalRobotTeam)(
             graph,
@@ -915,6 +1009,13 @@ def run_demo(
     robot_exposure = np.zeros(len(swarm.members))
     robot_search_exposure = np.zeros(len(swarm.members))
     arrival_times = np.full(len(swarm.members), np.inf)
+    survivor_exposure = np.zeros(len(survivor_sites))
+    evacuation_plans = terminal_homing_plans = 0
+    blocked_evacuation_plans = 0
+    blocked_return_epoch = np.full(len(swarm.members), -1, dtype=int)
+    waiting_return_geometry = np.zeros(len(swarm.members), dtype=bool)
+    escort_patients = np.full(len(swarm.members), -1, dtype=int)
+    contact_rng = stage_rng(seed, "contact")
     collapse_routing_results: list[PhysicalRouteResult] = []
     routing_rng = stage_rng(seed, "hazard")
     search_rng = stage_rng(seed, "search")
@@ -933,7 +1034,7 @@ def run_demo(
     last_geometry_refresh_s = -math.inf
     hazard_every = max(1, round(LIVE_HAZARD_DT_S / params.collapse.timestep_s))
     drive_limit = (
-        round(LIVE_DISASTER_SECONDS / params.collapse.timestep_s)
+        round(mission_horizon_s / params.collapse.timestep_s)
         if live_disaster
         else MAX_DRIVE_STEPS
     )
@@ -953,6 +1054,16 @@ def run_demo(
             else None
         )
         while step < drive_limit and (live_disaster or not swarm.done):
+            if (
+                evacuation is not None
+                and evacuation.done
+                and thermal_failed
+                and all(
+                    depth <= -0.35
+                    for depth in _interior_depths(swarm.positions(data), plan.footprint)
+                )
+            ):
+                break
             if live_disaster and step % hazard_every == 0:
                 assert thermal_state is not None
                 assert thermal_solver is not None
@@ -965,8 +1076,23 @@ def run_demo(
                     thermal_domain, thermal_state, sample_positions
                 ) * (hazard_every * params.collapse.timestep_s)
                 robot_exposure += dose
-                searching = np.array([m.status != "arrived" for m in swarm.members])
+                searching = (
+                    ~np.isfinite(arrival_times)
+                    if evacuation
+                    else np.array([m.status != "arrived" for m in swarm.members])
+                )
                 robot_search_exposure += dose * searching
+                if evacuation is not None:
+                    survivor_exposure += (
+                        _robot_exposure_rate(
+                            thermal_domain,
+                            thermal_state,
+                            evacuation.positions(data)
+                            + np.array([0, 0, evacuation_config.height_m / 2]),
+                        )
+                        * LIVE_HAZARD_DT_S
+                        * ~np.isfinite(evacuation.evacuation_time_s)
+                    )
                 elapsed_s = step * params.collapse.timestep_s
                 if not routing_results and elapsed_s >= LIVE_SEARCH_LOCALIZE_AT_S:
                     robot_positions = _trail_surface_positions(
@@ -1043,7 +1169,7 @@ def run_demo(
                                 baseline,
                                 routing_rng,
                                 available_time_s=max(
-                                    0, LIVE_DISASTER_SECONDS - elapsed_s - 2
+                                    0, mission_horizon_s - elapsed_s - 2
                                 ),
                             )
                             if physical_team is not None
@@ -1224,33 +1350,59 @@ def run_demo(
                         surface_position[2] -= member.assignment.spec.ride_height_m
                         if np.linalg.norm(previous[0] - surface_position) > 0.05:
                             previous = np.vstack((surface_position, previous))
-                        result = (
-                            physical_team.plan(
-                                index,
-                                thermal_domain,
-                                thermal_state,
-                                surface_position,
-                                target,
-                                previous,
-                                routing_rng,
-                                beta=2.0,
-                                available_time_s=max(
-                                    0, LIVE_DISASTER_SECONDS - elapsed_s - 2
-                                ),
+                        if evacuation is not None and escort_patients[index] >= 0:
+                            waiting_return_geometry[index] = False
+                            try:
+                                target, previous = exterior_route(
+                                    graph,
+                                    surface_position,
+                                    plan.footprint,
+                                    preferred=start_positions[index],
+                                )
+                                search_targets[index] = target
+                            except NoEvacuationRouteError:
+                                waiting_return_geometry[index] = True
+                                blocked_evacuation_plans += 1
+                                print(
+                                    f"[rescue] {member.name}: "
+                                    "return path temporarily disconnected"
+                                )
+                                continue
+                        try:
+                            result = (
+                                physical_team.plan(
+                                    index,
+                                    thermal_domain,
+                                    thermal_state,
+                                    surface_position,
+                                    target,
+                                    previous,
+                                    routing_rng,
+                                    beta=2.0,
+                                    available_time_s=max(
+                                        0, mission_horizon_s - elapsed_s - 2
+                                    ),
+                                )
+                                if physical_team is not None
+                                else plan_belief_route(
+                                    graph,
+                                    thermal_domain,
+                                    thermal_state,
+                                    surface_position,
+                                    target,
+                                    previous,
+                                    routing_rng,
+                                    scan_radius_m=LIVE_COLLAPSE_SCAN_RADIUS_M,
+                                    beta=2.0,
+                                )
                             )
-                            if physical_team is not None
-                            else plan_belief_route(
-                                graph,
-                                thermal_domain,
-                                thermal_state,
-                                surface_position,
-                                target,
-                                previous,
-                                routing_rng,
-                                scan_radius_m=LIVE_COLLAPSE_SCAN_RADIUS_M,
-                                beta=2.0,
-                            )
-                        )
+                        except PhysicalRouteUnavailableError:
+                            if evacuation is None:
+                                raise
+                            waiting_return_geometry[index] = True
+                            blocked_evacuation_plans += 1
+                            continue
+                        waiting_return_geometry[index] = False
                         if geometry_due:
                             collapse_routing_results.append(result)
                         stage.route_results[member.name] = result
@@ -1289,11 +1441,147 @@ def run_demo(
                             f"in {result.sweeps} sweeps"
                         )
                     stage.replan_latency_ms = 1000.0 * (perf_counter() - replan_started)
+            if evacuation is not None and search_result is not None:
+                elapsed_s = step * params.collapse.timestep_s
+                if step % max(1, round(5 / params.collapse.timestep_s)) == 0:
+                    print(
+                        f"[rescue] t={elapsed_s:.1f}s: "
+                        f"{evacuation.contacted} contacted, "
+                        f"{evacuation.rescued} evacuated; "
+                        f"max escort gap {evacuation.maximum_gap_m:.2f}m"
+                    )
+                # Contact planning runs at sensor rate, independently of video frames.
+                if step % hazard_every == 0:
+                    for index, member in enumerate(swarm.members):
+                        if (
+                            escort_patients[index] >= 0
+                            or not member.driver.finished
+                            or blocked_return_epoch[index] == physical_team.map_epoch
+                        ):
+                            continue
+                        patient = search_result.robot_to_beacon[index]
+                        surface = _trail_surface_positions(
+                            swarm.positions(data), swarm
+                        )[index]
+                        measured = evacuation.sense(
+                            model, data, patient, surface, contact_rng
+                        )
+                        if measured is None:
+                            continue
+                        if (
+                            np.linalg.norm(measured[:2] - surface[:2])
+                            > evacuation_config.contact_radius_m
+                        ):
+                            target = graph.world_positions()[
+                                nearest_node(graph, tuple(measured))
+                            ]
+                            baseline = _baseline_route(
+                                graph, surface, nearest_node(graph, tuple(target))
+                            )
+                            try:
+                                route = physical_team.plan(
+                                    index,
+                                    thermal_domain,
+                                    thermal_state,
+                                    surface,
+                                    target,
+                                    baseline,
+                                    routing_rng,
+                                    beta=2.0,
+                                    available_time_s=max(
+                                        0, mission_horizon_s - elapsed_s - 2
+                                    ),
+                                )
+                            except PhysicalRouteUnavailableError:
+                                blocked_return_epoch[index] = physical_team.map_epoch
+                                blocked_evacuation_plans += 1
+                                continue
+                            if route.converged:
+                                search_targets[index] = target
+                                swarm.reroute(
+                                    index,
+                                    route.waypoints,
+                                    goal_label=f"B{patient + 1} · LOCAL CONTACT",
+                                )
+                                terminal_homing_plans += 1
+                            continue
+                        if evacuation.owner[patient] < 0:
+                            try:
+                                evacuation.begin(
+                                    data, patient, index, surface, elapsed_s
+                                )
+                            except ValueError:
+                                continue
+                        try:
+                            target, baseline = exterior_route(
+                                graph,
+                                surface,
+                                plan.footprint,
+                                preferred=start_positions[index],
+                            )
+                        except NoEvacuationRouteError:
+                            blocked_return_epoch[index] = physical_team.map_epoch
+                            blocked_evacuation_plans += 1
+                            print(
+                                f"[rescue] {member.name}: no outdoor path in map "
+                                f"epoch {physical_team.map_epoch}; "
+                                "awaiting new geometry"
+                            )
+                            continue
+                        try:
+                            route = physical_team.plan(
+                                index,
+                                thermal_domain,
+                                thermal_state,
+                                surface,
+                                target,
+                                baseline,
+                                routing_rng,
+                                beta=2.0,
+                                available_time_s=max(
+                                    0, mission_horizon_s - elapsed_s - 2
+                                ),
+                            )
+                        except PhysicalRouteUnavailableError:
+                            blocked_return_epoch[index] = physical_team.map_epoch
+                            blocked_evacuation_plans += 1
+                            continue
+                        if not route.converged:
+                            blocked_return_epoch[index] = physical_team.map_epoch
+                            blocked_evacuation_plans += 1
+                            continue
+                        escort_patients[index] = patient
+                        search_targets[index] = target
+                        swarm.reroute(
+                            index,
+                            route.waypoints,
+                            goal_label=f"B{patient + 1} · EVACUATE OUTSIDE",
+                        )
+                        stage.route_results[member.name] = route
+                        evacuation_plans += 1
+                        print(
+                            f"[rescue] {member.name} contacted survivor{patient}; "
+                            f"return route {len(route.waypoints)} points"
+                        )
+                    stage.search_status = (
+                        f"RESCUE · {evacuation.contacted}/{len(survivor_sites)} "
+                        "CONTACTED · "
+                        f"{evacuation.rescued}/{len(survivor_sites)} EVACUATED"
+                    )
             swarm.step(model, data)
+            if evacuation is not None:
+                waiting = (
+                    evacuation.control(data, swarm.positions(data))
+                    | waiting_return_geometry
+                )
+                for index in np.flatnonzero(waiting):
+                    swarm.members[index].driver._drive(model, data, 0.0, 0.0)
             mujoco.mj_step(model, data)
             if distributed_physical:
                 _check_stable(model, data, strict=True)
             step += 1
+            if evacuation is not None:
+                evacuation.observe(data, step * params.collapse.timestep_s)
             swarm.observe(data, building.storey_height_m)
             for index, member in enumerate(swarm.members):
                 if (
@@ -1324,7 +1612,11 @@ def run_demo(
                 swarm,
                 elapsed_s=step * params.collapse.timestep_s,
                 mission_status=(
-                    _disaster_mission_status(
+                    f"{'RESCUE COMPLETE' if evacuation.done else 'RESCUE INCOMPLETE'}"
+                    " · "
+                    f"{evacuation.rescued}/{len(survivor_sites)} VERIFIED OUTSIDE"
+                    if evacuation is not None
+                    else _disaster_mission_status(
                         swarm,
                         len(thermal_failed),
                         sum(
@@ -1372,6 +1664,49 @@ def run_demo(
         frames=frames,
         video=video,
         live_disaster=live_disaster,
+        evacuation_enabled=evacuate,
+        survivor_dynamics="upright_force_driven_capsule" if evacuate else None,
+        survivors_contacted=evacuation.contacted if evacuation else 0,
+        survivors_evacuated=evacuation.rescued if evacuation else 0,
+        survivor_contact_time_s=tuple(
+            float(t) if np.isfinite(t) else None for t in evacuation.contact_time_s
+        )
+        if evacuation
+        else (),
+        survivor_evacuation_time_s=tuple(
+            float(t) if np.isfinite(t) else None for t in evacuation.evacuation_time_s
+        )
+        if evacuation
+        else (),
+        survivor_distance_m=tuple(map(float, evacuation.distance_m))
+        if evacuation
+        else (),
+        survivor_positions_m=tuple(
+            tuple(map(float, p)) for p in evacuation.positions(data)
+        )
+        if evacuation
+        else (),
+        survivor_exposure_proxy=tuple(map(float, survivor_exposure))
+        if evacuation
+        else (),
+        survivor_mass_kg=evacuation_config.mass_kg if evacuate else 0,
+        survivor_sliding_friction=evacuation_config.sliding_friction if evacuate else 0,
+        survivor_height_m=evacuation_config.height_m if evacuate else 0,
+        survivor_escort_robot=tuple(map(int, evacuation.owner)) if evacuation else (),
+        evacuation_footprint_m=(
+            plan.footprint.x0,
+            plan.footprint.y0,
+            plan.footprint.x1,
+            plan.footprint.y1,
+        )
+        if evacuation
+        else None,
+        escort_trail_high_water=evacuation.trail_high_water if evacuation else 0,
+        maximum_escort_gap_m=evacuation.maximum_gap_m if evacuation else 0,
+        evacuation_plans=evacuation_plans,
+        terminal_homing_plans=terminal_homing_plans,
+        blocked_evacuation_plans=blocked_evacuation_plans,
+        mission_horizon_s=mission_horizon_s,
         failed_members=tuple(sorted(thermal_failed)),
         robot_progress=tuple(member.progress for member in swarm.members),
         robot_displacement_m=tuple(
@@ -2359,6 +2694,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cascade.demo", description=__doc__)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument(
+        "--evacuate",
+        action="store_true",
+        help="contact and physically escort survivors outside",
+    )
+    parser.add_argument("--mission-horizon-s", type=float)
+    parser.add_argument(
         "--firmware-robots",
         type=int,
         default=0,
@@ -2443,6 +2784,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--height", type=int, default=None)
     parser.add_argument("--no-render", action="store_true", help="skip video")
     parser.add_argument(
+        "--render",
+        action="store_false",
+        dest="no_render",
+        default=argparse.SUPPRESS,
+        help="enable video (overrides a headless preset)",
+    )
+    parser.add_argument(
         "--no-cache", action="store_true", help="re-simulate the collapse"
     )
     parser.add_argument(
@@ -2460,6 +2808,13 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--compact is a live-disaster preset; add --live-disaster")
     if args.distributed and not args.live_disaster:
         parser.error("--distributed requires --live-disaster")
+    if args.evacuate and not args.distributed:
+        parser.error("--evacuate requires --distributed and --live-disaster")
+    if args.mission_horizon_s is not None and (
+        not np.isfinite(args.mission_horizon_s)
+        or not 48 <= args.mission_horizon_s <= 600
+    ):
+        parser.error("--mission-horizon-s must be finite in 48..600")
 
     if (
         not np.isfinite(args.sensing_interval_s)
@@ -2557,6 +2912,8 @@ def main(argv: list[str] | None = None) -> int:
             sensing_interval_s=args.sensing_interval_s,
             hazard_switch_min_gain=args.hazard_switch_min_gain,
             routing_backends=backends,
+            evacuate=args.evacuate,
+            mission_horizon_s=args.mission_horizon_s,
         )
     if (
         args.firmware_robots
@@ -2597,7 +2954,9 @@ def main(argv: list[str] | None = None) -> int:
                     "range_factor_transport_modeled": args.range_radio,
                     "localization_assignment_transport_modeled": False,
                     "localization_anchor_prior_transport_modeled": False,
-                    "physical_survivor_evacuation": False,
+                    "physical_survivor_evacuation": args.evacuate,
+                    "rescue_acceptance_gate_met": args.evacuate and result.accepted,
+                    "survivor_physiology_calibrated": False,
                     "embedded_timing_calibrated": False,
                     "whole_phase1_acceptance_gate_met": False,
                     "native_host_integer_routing": args.distributed,

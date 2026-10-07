@@ -12,6 +12,8 @@ from pathlib import Path
 
 COMMANDS = {
     "mission": "cascade.demo",
+    "rescue": "swarmrescue.rescue",
+    "rescue-evaluation": "eval.rescue",
     "tactical": "ember.demo",
     "view": "cascade.view",
     "evaluate": "eval.procedural",
@@ -99,6 +101,7 @@ def doctor():
         "package_version": package_version,
         "ready": all(c["passed"] for c in checks),
         "checks": checks,
+        "supported_commands": list(COMMANDS),
         "optional_tools": {
             "qemu": shutil.which("qemu-system-arm"),
             "arm_gcc": shutil.which("arm-none-eabi-gcc"),
