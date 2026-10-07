@@ -256,6 +256,32 @@ def _stage() -> Stage:
     )
 
 
+def test_rescue_terminal_card_counts_survivors_instead_of_robot_queue_arrivals(
+    monkeypatch,
+):
+    stage = _stage()
+    stage.evacuation = SimpleNamespace(
+        contacted=8,
+        rescued=8,
+        evacuation_time_s=np.arange(8, dtype=float) + 50,
+    )
+    stage.firmware_robots = 2
+    captured = {}
+
+    def card(frame, **values):
+        captured.update(values)
+        return frame
+
+    monkeypatch.setattr(demo, "research_card", card)
+    stage._results_card(
+        np.zeros((20, 20, 3), np.uint8),
+        [SimpleNamespace(status="driving") for _ in range(8)],
+    )
+    assert captured["title"] == "8/8 SURVIVORS EVACUATED"
+    assert "centralized BLE" not in captured["footer"]
+    assert captured["metrics"][0].value == "8/8"
+
+
 def test_storey_slice_switches_only_when_it_can_show_the_subject() -> None:
     stage = _stage()
 

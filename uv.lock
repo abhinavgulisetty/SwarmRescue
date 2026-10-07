@@ -844,7 +844,7 @@ wheels = [
 
 [[package]]
 name = "swarmrescue"
-version = "0.3.0"
+version = "0.3.1"
 source = { editable = "." }
 dependencies = [
     { name = "hydra-core" },

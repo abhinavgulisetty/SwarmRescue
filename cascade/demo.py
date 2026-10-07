@@ -992,6 +992,8 @@ def run_demo(
         routing_hazard_focus=routing_hazard_center,
         graph_positions=graph.world_positions(),
         distributed_physical=distributed_physical,
+        evacuation=evacuation,
+        firmware_robots=len(routing_backends),
     )
     every = max(1, round(speed / (fps * params.collapse.timestep_s)))
 
@@ -2195,6 +2197,8 @@ class Stage:
     replan_latency_ms: float | None = None
     distributed_physical: bool = False
     geometry_revisions: int = 0
+    evacuation: EvacuationTeam | None = None
+    firmware_robots: int = 0
     _subject_name: str | None = field(default=None, init=False, repr=False)
     _shot_started_s: float = field(default=0.0, init=False, repr=False)
     _terminal_since_s: float | None = field(default=None, init=False, repr=False)
@@ -2332,7 +2336,9 @@ class Stage:
             return research_card(
                 frame,
                 eyebrow=f"PHASE 1 INTEGRATION DEMO · ILLUSTRATIVE SEED {self.seed}",
-                title="Can local observations reject a newly unsafe route?",
+                title="Find survivors, confirm contact, and evacuate outside"
+                if self.evacuation is not None
+                else "Can local observations reject a newly unsafe route?",
                 body=(
                     "Independent robot GBP maps receive visibility-filtered scans "
                     "and delivered peer packets.\n"
@@ -2439,6 +2445,11 @@ class Stage:
     def _disaster_subtitle(self, elapsed_s: float) -> str | None:
         if self.disaster_focus is None:
             return self.disaster_status
+        if self.evacuation is not None and self.evacuation.contacted:
+            return (
+                f"PHYSICAL RESCUE · {self.evacuation.contacted} LOCAL CONTACTS · "
+                f"{self.evacuation.rescued} VERIFIED OUTSIDE"
+            )
         if self.search_status is None:
             return "STEP 1 OF 4 · DEPLOY AND SPREAD FOR BLE RANGING"
         if self.collapse_event_s is None:
@@ -2454,6 +2465,38 @@ class Stage:
         )
 
     def _research_metrics(self, deployed: int, total: int) -> list[ResearchMetric]:
+        if self.evacuation is not None:
+            times = self.evacuation.evacuation_time_s
+            last = (
+                float(np.max(times[np.isfinite(times)]))
+                if np.any(np.isfinite(times))
+                else None
+            )
+            return [
+                ResearchMetric(
+                    "Local contact",
+                    f"{self.evacuation.contacted}/{total}",
+                    "proximity and visibility",
+                ),
+                ResearchMetric(
+                    "Evacuated",
+                    f"{self.evacuation.rescued}/{total}",
+                    "physical bodies outside",
+                    (90, 220, 130),
+                ),
+                ResearchMetric(
+                    "Last evacuation",
+                    f"{last:.1f} s" if last is not None else "pending",
+                    "simulation time",
+                ),
+                ResearchMetric(
+                    "Integer routing",
+                    f"{self.firmware_robots} ARM workers"
+                    if self.firmware_robots
+                    else "NATIVE C",
+                    "host inference and physics",
+                ),
+            ]
         if self.search_result is None:
             return [
                 ResearchMetric(
@@ -2463,7 +2506,13 @@ class Stage:
                 ResearchMetric(
                     "Planning graph", "FULL PRIOR", "supplied to every solve"
                 ),
-                ResearchMetric("Execution", "CENTRALIZED", "distributed path pending"),
+                ResearchMetric(
+                    "Execution",
+                    "DISTRIBUTED" if self.distributed_physical else "CENTRALIZED",
+                    "independent maps"
+                    if self.distributed_physical
+                    else "shared reference",
+                ),
             ]
 
         results = list(self.route_results.values())
@@ -2528,6 +2577,18 @@ class Stage:
     ) -> np.ndarray:
         arrived = sum(readout.status == "arrived" for readout in readouts)
         total = len(readouts)
+        if self.evacuation is not None:
+            return research_card(
+                frame,
+                eyebrow=f"RESCUE RESULTS · SIMULATED SEED {self.seed}",
+                title=f"{self.evacuation.rescued}/{total} SURVIVORS EVACUATED",
+                body="Individual contact established; survivor bodies moved through "
+                "the live geometry\nand crossed the outdoor safe-zone boundary.",
+                metrics=self._research_metrics(total, total),
+                footer="Force-driven capsule survivors · ground-level rescue · "
+                "independent beliefs and radio; "
+                "physiology and hardware timing uncalibrated.",
+            )
         results = list(self.initial_route_results.values())
         before = sum(result.baseline_proxy_cost for result in results)
         after = sum(result.planned_proxy_cost for result in results)
