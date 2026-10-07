@@ -1,10 +1,10 @@
 # EMBER Whole-Project Status
 
 **Historical percentage audit date:** 2026-09-29
-**Latest acceptance audit:** 2026-10-06
+**Latest acceptance audit:** 2026-10-07
 **Historical weighted checkpoint:** **76%**
 **Previous checkpoint target:** 75%
-**Current status:** **project remains incomplete; see [current gates](COMPLETION_GATES.md)**
+**Current status:** **0.3.1 rescue simulation workflow and local deployment complete; see [verified release](docs/rescue.md). Original scientific/hardware claims remain separate in the [research ledger](COMPLETION_GATES.md).**
 
 This is the controlling completion report. `CHECKPOINT_75.md` measures readiness of
 the academic review package; it is not a claim that 75% of the research system is
@@ -491,3 +491,30 @@ identity. Matched deployment comparisons and release artifacts are described in
 The remaining scientific and whole-system gates in
 [COMPLETION_GATES.md](COMPLETION_GATES.md) remain open. No revised completion
 percentage or full research-project completion is claimed.
+
+## Completed rescue software workflow — 2026-10-07
+
+Release 0.3.0 adds physically simulated survivor proxies, local contact/homing,
+unique escorts, current-geometry outdoor replanning, bounded breadcrumb following
+and a current-state safe-zone completion condition. It deploys the full workflow
+through the installed CLI and optional live Cortex-M4 routing workers. All 707
+tests pass. Five final mission checks evacuate every survivor in four buildings;
+the paired seed-42 native/ARM cases agree exactly and the ARM workers perform
+25 planning requests. The new controller reduces last evacuation time by
+27.5–44.2% across three paired development checkpoints.
+
+The new engineering contract verifies physical coordinates, ownership, event
+ordering, firmware activity and archived source identity. It does not redefine
+the historical proposal's scientific metrics. The 55 kg/0.78 m force-driven
+capsule, ideal balance, ground-level scenes and omitted mutual collisions are
+explicit model assumptions. Whole embedded resources, calibrated sensor/human
+performance and original research thresholds are not claimed. See the
+[complete release record](docs/rescue.md).
+
+The 0.3.1 patch corrects the old site-arrival result card to use verified
+survivor evacuation, including live contact/outside counters and truthful
+execution labels. All 708 tests pass. Final rendered-native and live-ARM runs
+match the 0.3.0 checkpoint exactly on eight physical/timing/exposure/radio
+fields. The corrected 1920×1080 demo ends with 8/8 survivors evacuated at
+81.4 simulated seconds. The [release receipt](docs/releases/0.3.1.json) records
+source, wheel, firmware, archive and validation identity.

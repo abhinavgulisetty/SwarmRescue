@@ -1,10 +1,10 @@
-# Current completion gates — 2026-10-07
+# Research acceptance ledger — 2026-10-07
 
-The research project is **not fully complete**. The September 76% score was a historical weighted checkpoint, not a current acceptance result. Passing a component or site-arrival mission does not establish whole-system deployment, survival, or paper contribution gates.
+The original research proposal is **not scientifically certified**. The 0.3.1 software release completes the tested search/contact/physical-evacuation workflow; see [its engineering acceptance and model assumptions](docs/rescue.md). The September 76% score was a historical weighted checkpoint, not a current acceptance result. Passing a component or site-arrival mission does not establish whole-system deployment, survival, or paper contribution gates.
 
 | Requirement | Current evidence | Remaining work |
 | --- | --- | --- |
-| Local executable deployment | Installable 0.2.0 wheel, hashed dependency lock, isolated installed-source provenance, health check and mission launcher | Remote/physical targets require a specified destination; these are distinct from the local prototype release |
+| Local executable deployment | Installable 0.3.1 wheel, hashed dependency lock, isolated installed-source provenance, health check and mission launcher | Remote/physical targets require a specified destination; these are distinct from the local prototype release |
 | World, collapse, maps and physical driving | Implemented; regression suite and fresh physical missions pass | Broader deployment validation |
 | Separate hazard beliefs, replay protection, radio and native routing | Independent robot states; physical radio delivery; geometry epochs; bounded latest evidence; tested C kernels | Whole firmware integration and bounded metadata |
 | Robust integer route extraction | 500-cell underflow corridor; native/reference policy tests; Cortex-M4 replay and live UART planning | Measured hardware deadlines |
@@ -14,10 +14,10 @@ The research project is **not fully complete**. The September 76% score was a hi
 | VoI and resilience contributions | Implemented component and procedural grids; historical scheduler correction recorded | Fresh frozen whole-system comparisons; physical receiver information gain and failure grid |
 | Firmware emulator execution | Replay grids pass; one/two private Cortex-M4 workers now perform live physical-mission routing over framed UART | Full robot firmware, physical-board transport and hardware calibration |
 | Less than 200 KiB whole-robot RAM and less than 5% deadline misses | Regional numeric arena under 200 KiB; replay harness reserves 32,176 bytes; live routing service reserves 118,800 bytes including stack | Account for all metadata/map/refinement/sensor buffers and measure target cycles; component figures cannot be added or substituted for a whole image |
-| Calibrated survival and patient evacuation | Procedural modeled evaluation; physical missions reach assigned sites | Validate tenability assumptions and implement physical patient extraction/egress |
+| Calibrated survival and patient evacuation | Procedural modeled evaluation; ground-level physical survivor proxies now evacuate to outdoor safe zones | Validate tenability/biomechanics assumptions and extend patient evacuation beyond the tested ground-level surrogate |
 | Final sealed validation | Original set already opened; historical replay labeling preserved | Freeze final code/protocol/thresholds before selecting a genuinely unused evaluation set |
 
-The latest full regression run has **682 passes**, including fresh Cortex-M4 replay and live UART checks using workspace-local tools; runtime Ruff passes. The installed tactical mission, installed replay and physical firmware mission pass. Learned speed, real sensor calibration, whole embedded resources, patient evacuation and final scientific validation remain open. No new whole-project completion percentage is assigned.
+The latest full regression run has **708 passes**, including fresh Cortex-M4 replay and live UART checks using workspace-local tools; runtime Ruff passes. The installed tactical mission, installed replay and physical firmware mission pass. Learned speed, real sensor calibration, whole embedded resources, biomechanics calibration, broader evacuation scenarios and final scientific validation remain open. No new whole-project completion percentage is assigned.
 
 Detailed evidence: [deployment](docs/deployment.md), [live firmware](docs/live-firmware.md), [localization](docs/range-localization.md), [firmware emulation](docs/firmware-emulation.md), [architecture](docs/architecture-experiments.md), [sensing](docs/hazard-sensing.md), and [full historical status](FULL_PROJECT_STATUS.md).
 

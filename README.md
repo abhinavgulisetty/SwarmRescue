@@ -3,27 +3,30 @@
 **E**dge-native **M**essage-passing for **B**ellman-**E**gress **R**outing.
 
 SwarmRescue is a working simulation and firmware-kernel research prototype. Version
-0.2.0 installs as a standalone package and supports an eight-robot physical MuJoCo
-mission with independent receiver beliefs, lossy radio, range-factor localization,
+0.3.1 installs as a standalone package and supports a complete eight-robot physical MuJoCo
+rescue mission with independent receiver beliefs, lossy radio, range-factor localization,
 geometry-triggered replanning and live Cortex-M4 integer routing for two robots.
 Host code still handles sensors, localization, assignment and fine geometry.
-Reaching survivor sites is implemented; physical patient evacuation remains open.
+The deployed workflow finds survivor beacons, establishes local contact, and moves
+physical survivor proxies into outdoor safe zones. All 708 tests pass; the
+multi-building physics grid and native/ARM verification pass. Human physiology and hardware performance are not calibrated.
 
-[Deployment instructions](docs/deployment.md), [current acceptance gates](COMPLETION_GATES.md),
+[Current rescue release](docs/rescue.md), [earlier deployment instructions](docs/deployment.md), [research acceptance ledger](COMPLETION_GATES.md),
 [historical evidence](FULL_PROJECT_STATUS.md), and [research proposal](PROPOSAL.md).
 The September completion percentage is historical and does not describe this release.
 
 ## Deployed release
 
-The checked local deployment is in `outputs/deployment/final/`. Run its eight-robot mission:
+The checked local deployment is in `outputs/deployment/rescue/`. Run its eight-robot mission:
 
 ```bash
-outputs/deployment/final/run-mission
+outputs/deployment/rescue/run-mission
 ```
 
-The launcher uses the isolated installed environment and two Cortex-M4 QEMU workers.
+The launcher runs the full search/contact/evacuation preset in an isolated installed
+environment with two Cortex-M4 QEMU workers.
 It records a JSON acceptance report and the installed sources used for that run.
-Build/install commands and prerequisites are in [the deployment guide](docs/deployment.md).
+Build/install commands and model assumptions are in [the rescue guide](docs/rescue.md).
 No physical board was flashed and no remote deployment or Git push was performed.
 
 ## Research contributions and current evidence
@@ -31,7 +34,7 @@ No physical board was flashed and no remote deployment or Git push was performed
 | Proposed contribution | Implemented evidence and remaining gates |
 | --- | --- |
 | **C1: uncertainty-aware routing** | Independent beliefs feed uncertainty-aware route costs; native integer and emulator policies are cross-checked. Calibrated whole-system survival comparisons remain open. |
-| **C2: safeguarded learned acceleration** | Safeguard and training infrastructure exist. The historical roughly 1x result fails the proposed 2x threshold; deployed int8 acceleration is not established. |
+| **C2: safeguarded learned acceleration** | The int8 proposer and global safeguard have regression tests. The historical roughly 1x result fails the proposed 2x threshold; deployed int8 acceleration is not established. |
 | **C3: adjoint/VoI communication** | Scheduler and procedural comparisons exist. Fresh frozen physical comparisons at matched budgets and receiver information gain remain open. |
 | **C4: implicit handling of failures** | Stale precision, radio loss and provenance are modeled. Whole physical failure grids and sealed validation remain open. |
 
@@ -44,7 +47,6 @@ QEMU MPS2 Cortex-M4, with persistent UART routing requests, rather than a full r
 firmware image. ESP32 and physical-board deployment are not implemented here.
 
 ## Running from source
-
 
 Everything below runs from the repo root against the project venv (Python 3.12).
 
