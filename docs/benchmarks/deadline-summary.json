@@ -1,0 +1,997 @@
+{
+  "split": "evaluation",
+  "candidate": "hybrid_exact",
+  "seeds": [
+    62000,
+    62001,
+    62002,
+    62003,
+    62004,
+    62005,
+    62006,
+    62007
+  ],
+  "families": [
+    "grid",
+    "rooms",
+    "dense",
+    "deadends",
+    "tradeoff",
+    "large_grid"
+  ],
+  "label_caps": [
+    32,
+    128,
+    4096
+  ],
+  "numeric_arena_bytes": 204800,
+  "python": "3.12.13",
+  "numpy": "2.5.1",
+  "scipy": "1.18.0",
+  "source_files_sha256": {
+    "ember/routing/deadline.py": "04272f41700a4c9cb40eeb2b84cacd9233a28fe35c4ef5ab8c106b91ac9a7f4d",
+    "ember/routing/constrained.py": "3ae1df2079b0e0ca041d4e1432ba48d5ebd0f67d6f9a073dff4dfe17c97b5d76",
+    "eval/constrained_benchmark.py": "aee7099b817d6454e07dd5784f00840fe17de746096cc25218a309de51e0407b",
+    "eval/procedural.py": "4820c6491fabc579fd71f78ed6003440600f887a941aac1b07149d1fd135b2a5",
+    "cascade/floorplan.py": "0394235907d898e63b93103931ba421510dc34192021c6f92c4d52e7ed05f16c",
+    "cascade/params.py": "0f9bdb044bad9d38ca46d85b92cee27f2b4393f491cecc28e4affd2b1d305b24",
+    "cascade/rng.py": "5599f313f17ae9594d488a8f252812a66e00171db3bc51a97ec4de90c3f2e7db",
+    "cascade/extract.py": "64c04a4053b4cd2f1faaa05555a379acb78e0f7c03f9444b7314990bc87bd7c3",
+    "eval/reference_constrained.py": "c801a625e150a14328785ce09a16ed3258c47112b0ee119eeb57ae3f3743e3d4"
+  },
+  "timing": "three cold full-call samples; topology, quantization, certificates and allocation included",
+  "memory_scope": "bounded numeric tables and labels; Python graph/heap, SciPy matrices and HiGHS memory not MCU accounted",
+  "summary": {
+    "pareto": {
+      "correct": 144,
+      "total": 144,
+      "feasible_cases": 126,
+      "proven_optimal": 55,
+      "mean_gap_fraction": 0.1371651477297306,
+      "mean_labels": 180.66666666666666,
+      "median_call_ms": 1.3581475,
+      "exact_pairs": 55,
+      "candidate_geomean_speedup_on_exact_pairs": 1.142190379564857,
+      "speedup_seed_bootstrap_95ci": [
+        1.0128192043620707,
+        1.2771258233862564
+      ],
+      "candidate_lower_cost_cases": 21
+    },
+    "astar": {
+      "correct": 144,
+      "total": 144,
+      "feasible_cases": 126,
+      "proven_optimal": 112,
+      "mean_gap_fraction": 0.07594554609589738,
+      "mean_labels": 18.493055555555557,
+      "median_call_ms": 1.5438874999999999,
+      "exact_pairs": 112,
+      "candidate_geomean_speedup_on_exact_pairs": 0.9480949884430813,
+      "speedup_seed_bootstrap_95ci": [
+        0.8706077550082257,
+        1.0081967479324034
+      ],
+      "candidate_lower_cost_cases": 13
+    },
+    "lazy_astar": {
+      "correct": 144,
+      "total": 144,
+      "feasible_cases": 126,
+      "proven_optimal": 109,
+      "mean_gap_fraction": 0.08060166553218677,
+      "mean_labels": 21.61111111111111,
+      "median_call_ms": 1.5661725,
+      "exact_pairs": 109,
+      "candidate_geomean_speedup_on_exact_pairs": 0.953639498122053,
+      "speedup_seed_bootstrap_95ci": [
+        0.8684093390148045,
+        1.0255265273238847
+      ],
+      "candidate_lower_cost_cases": 15
+    },
+    "dual_astar": {
+      "correct": 144,
+      "total": 144,
+      "feasible_cases": 126,
+      "proven_optimal": 119,
+      "mean_gap_fraction": 0.011526717896819366,
+      "mean_labels": 10.07638888888889,
+      "median_call_ms": 1.5809215,
+      "exact_pairs": 119,
+      "candidate_geomean_speedup_on_exact_pairs": 1.061211599360217,
+      "speedup_seed_bootstrap_95ci": [
+        0.9799412207938794,
+        1.1631330755542257
+      ],
+      "candidate_lower_cost_cases": 5
+    },
+    "bounded_dp": {
+      "correct": 144,
+      "total": 144,
+      "feasible_cases": 126,
+      "proven_optimal": 111,
+      "mean_gap_fraction": 0.07845343606792814,
+      "mean_labels": 0.0,
+      "median_call_ms": 1.585748,
+      "exact_pairs": 111,
+      "candidate_geomean_speedup_on_exact_pairs": 0.9986653190034396,
+      "speedup_seed_bootstrap_95ci": [
+        0.9696544330923503,
+        1.021588258298694
+      ],
+      "candidate_lower_cost_cases": 15
+    },
+    "window_dp": {
+      "correct": 144,
+      "total": 144,
+      "feasible_cases": 126,
+      "proven_optimal": 126,
+      "mean_gap_fraction": 0.0,
+      "mean_labels": 0.0,
+      "median_call_ms": 1.6943895,
+      "exact_pairs": 126,
+      "candidate_geomean_speedup_on_exact_pairs": 1.1035752021143543,
+      "speedup_seed_bootstrap_95ci": [
+        1.0503823045197753,
+        1.1563864647705497
+      ],
+      "candidate_lower_cost_cases": 0
+    },
+    "hybrid_exact": {
+      "correct": 144,
+      "total": 144,
+      "feasible_cases": 126,
+      "proven_optimal": 126,
+      "mean_gap_fraction": 0.0,
+      "mean_labels": 0.0,
+      "median_call_ms": 1.555281,
+      "exact_pairs": 126,
+      "candidate_geomean_speedup_on_exact_pairs": 1.0,
+      "speedup_seed_bootstrap_95ci": [
+        1.0,
+        1.0
+      ],
+      "candidate_lower_cost_cases": 0
+    },
+    "milp": {
+      "correct": 144,
+      "total": 144,
+      "feasible_cases": 126,
+      "proven_optimal": 123,
+      "mean_gap_fraction": 0.0024042304177653863,
+      "mean_labels": 0.0,
+      "median_call_ms": 18.236013,
+      "exact_pairs": 123,
+      "candidate_geomean_speedup_on_exact_pairs": 14.328550352461008,
+      "speedup_seed_bootstrap_95ci": [
+        13.124494065812634,
+        16.06464147486885
+      ],
+      "candidate_lower_cost_cases": 3
+    }
+  },
+  "by_family": {
+    "grid": {
+      "pareto": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 7,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 133.70833333333334,
+        "median_call_ms": 1.5237655,
+        "exact_pairs": 7,
+        "candidate_geomean_speedup_on_exact_pairs": 1.5616827912394455,
+        "speedup_seed_bootstrap_95ci": [
+          1.4528527106580114,
+          1.6649163859952745
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "astar": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 1.493439,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.068635376205609,
+        "speedup_seed_bootstrap_95ci": [
+          1.000526585423307,
+          1.1611094541860179
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "lazy_astar": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 1.426226,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.0257308034772072,
+        "speedup_seed_bootstrap_95ci": [
+          1.0017327987589038,
+          1.0533232300891284
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "dual_astar": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 1.4096190000000002,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.0357945433499987,
+        "speedup_seed_bootstrap_95ci": [
+          0.9861274843564185,
+          1.1157479747149264
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "bounded_dp": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 1.433797,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.0294078726840654,
+        "speedup_seed_bootstrap_95ci": [
+          1.0096612947075916,
+          1.0490996998239521
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "window_dp": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 1.397124,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.0290275782037537,
+        "speedup_seed_bootstrap_95ci": [
+          0.9949203801731115,
+          1.0753792537798794
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "hybrid_exact": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 1.4335944999999999,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.0,
+        "speedup_seed_bootstrap_95ci": [
+          1.0,
+          1.0
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "milp": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 25.6164245,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 19.32997136339423,
+        "speedup_seed_bootstrap_95ci": [
+          18.151519543555374,
+          20.775935647300514
+        ],
+        "candidate_lower_cost_cases": 0
+      }
+    },
+    "rooms": {
+      "pareto": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 9,
+        "mean_gap_fraction": 0.002859683899310971,
+        "mean_labels": 90.08333333333333,
+        "median_call_ms": 0.8736235,
+        "exact_pairs": 9,
+        "candidate_geomean_speedup_on_exact_pairs": 1.1849433860030667,
+        "speedup_seed_bootstrap_95ci": [
+          0.7878959530719705,
+          1.9630928986575038
+        ],
+        "candidate_lower_cost_cases": 1
+      },
+      "astar": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.75,
+        "median_call_ms": 0.7440235,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 0.9051026338271378,
+        "speedup_seed_bootstrap_95ci": [
+          0.7842679167353028,
+          0.995258895354751
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "lazy_astar": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.75,
+        "median_call_ms": 0.7604059999999999,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 0.9515672726032298,
+        "speedup_seed_bootstrap_95ci": [
+          0.804404051637772,
+          1.0549111532600328
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "dual_astar": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.75,
+        "median_call_ms": 0.7503394999999999,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.0930203507198544,
+        "speedup_seed_bootstrap_95ci": [
+          0.9838742601709031,
+          1.3085019624660112
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "bounded_dp": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 0.7531165,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 0.9835016876896454,
+        "speedup_seed_bootstrap_95ci": [
+          0.9404803678900472,
+          1.0270702656828858
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "window_dp": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 0.7644725,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.0548406884822314,
+        "speedup_seed_bootstrap_95ci": [
+          0.9890013478123546,
+          1.149650836425952
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "hybrid_exact": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 0.7545580000000001,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.0,
+        "speedup_seed_bootstrap_95ci": [
+          1.0,
+          1.0
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "milp": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 16.1085635,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 18.38290275587216,
+        "speedup_seed_bootstrap_95ci": [
+          14.289418352064862,
+          23.186743672928806
+        ],
+        "candidate_lower_cost_cases": 0
+      }
+    },
+    "dense": {
+      "pareto": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 17,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 33.541666666666664,
+        "median_call_ms": 1.0818675,
+        "exact_pairs": 17,
+        "candidate_geomean_speedup_on_exact_pairs": 0.7600042963273147,
+        "speedup_seed_bootstrap_95ci": [
+          0.6737659412142956,
+          0.9062480266705524
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "astar": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.25,
+        "median_call_ms": 1.570918,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 0.9679807758523423,
+        "speedup_seed_bootstrap_95ci": [
+          0.8739457218817739,
+          1.0576927642916103
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "lazy_astar": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.25,
+        "median_call_ms": 1.5867594999999999,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.0066288545911743,
+        "speedup_seed_bootstrap_95ci": [
+          0.9028769607900637,
+          1.095237097448508
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "dual_astar": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.25,
+        "median_call_ms": 1.5959444999999999,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.1673800372333354,
+        "speedup_seed_bootstrap_95ci": [
+          0.9976492993736313,
+          1.4613513833677527
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "bounded_dp": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 1.6173544999999998,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 0.9974424342078048,
+        "speedup_seed_bootstrap_95ci": [
+          0.9175143760050027,
+          1.0774464482058594
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "window_dp": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 1.5829135,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.0373746667417048,
+        "speedup_seed_bootstrap_95ci": [
+          0.976651900181389,
+          1.0965604043746064
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "hybrid_exact": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 1.574678,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.0,
+        "speedup_seed_bootstrap_95ci": [
+          1.0,
+          1.0
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "milp": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 42.511478,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 21.565830884745896,
+        "speedup_seed_bootstrap_95ci": [
+          16.07493421625625,
+          28.17488555331568
+        ],
+        "candidate_lower_cost_cases": 0
+      }
+    },
+    "deadends": {
+      "pareto": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 7,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 190.08333333333334,
+        "median_call_ms": 1.8401045,
+        "exact_pairs": 7,
+        "candidate_geomean_speedup_on_exact_pairs": 1.5445322186022061,
+        "speedup_seed_bootstrap_95ci": [
+          1.4603467056806447,
+          1.688711622646002
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "astar": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 1.7979065,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.008115032834919,
+        "speedup_seed_bootstrap_95ci": [
+          0.9990292328798998,
+          1.018199561934708
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "lazy_astar": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 1.894231,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.008004643298997,
+        "speedup_seed_bootstrap_95ci": [
+          0.9357060005183262,
+          1.0841233854179866
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "dual_astar": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 1.7597040000000002,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.0060568208567482,
+        "speedup_seed_bootstrap_95ci": [
+          0.9876892705232324,
+          1.0289402436622632
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "bounded_dp": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 1.8282285,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 0.9860870738097519,
+        "speedup_seed_bootstrap_95ci": [
+          0.9367879784966703,
+          1.0265325157588945
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "window_dp": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 1.8152840000000001,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.0164748791188196,
+        "speedup_seed_bootstrap_95ci": [
+          0.9505290130278907,
+          1.102669483515839
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "hybrid_exact": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 1.7706270000000002,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.0,
+        "speedup_seed_bootstrap_95ci": [
+          1.0,
+          1.0
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "milp": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 9.3433455,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 5.497002797393973,
+        "speedup_seed_bootstrap_95ci": [
+          5.2068818008755535,
+          5.825588481020265
+        ],
+        "candidate_lower_cost_cases": 0
+      }
+    },
+    "tradeoff": {
+      "pareto": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 8,
+        "mean_gap_fraction": 0.5063174582073601,
+        "mean_labels": 106.75,
+        "median_call_ms": 0.666218,
+        "exact_pairs": 8,
+        "candidate_geomean_speedup_on_exact_pairs": 1.8095290465562501,
+        "speedup_seed_bootstrap_95ci": [
+          1.2508780626459721,
+          2.4552414463177015
+        ],
+        "candidate_lower_cost_cases": 10
+      },
+      "astar": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 15,
+        "mean_gap_fraction": 0.1697962489214081,
+        "mean_labels": 45.583333333333336,
+        "median_call_ms": 0.5667975000000001,
+        "exact_pairs": 15,
+        "candidate_geomean_speedup_on_exact_pairs": 0.9367108076103882,
+        "speedup_seed_bootstrap_95ci": [
+          0.743108772107952,
+          1.168350133520529
+        ],
+        "candidate_lower_cost_cases": 5
+      },
+      "lazy_astar": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 14,
+        "mean_gap_fraction": 0.1697962489214081,
+        "mean_labels": 48.833333333333336,
+        "median_call_ms": 0.545563,
+        "exact_pairs": 14,
+        "candidate_geomean_speedup_on_exact_pairs": 0.8922877999545465,
+        "speedup_seed_bootstrap_95ci": [
+          0.7194062398929926,
+          1.0938677984450182
+        ],
+        "candidate_lower_cost_cases": 5
+      },
+      "dual_astar": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 19,
+        "mean_gap_fraction": 0.0028670492825794377,
+        "mean_labels": 14.75,
+        "median_call_ms": 0.673583,
+        "exact_pairs": 19,
+        "candidate_geomean_speedup_on_exact_pairs": 0.9249838233728256,
+        "speedup_seed_bootstrap_95ci": [
+          0.687457697289187,
+          1.2138049600833338
+        ],
+        "candidate_lower_cost_cases": 1
+      },
+      "bounded_dp": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 0.8679535,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 0.998458116468636,
+        "speedup_seed_bootstrap_95ci": [
+          0.9548026330822083,
+          1.0579747323182813
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "window_dp": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 1.698956,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.5726209513148197,
+        "speedup_seed_bootstrap_95ci": [
+          1.2747753891820819,
+          1.9065997613678836
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "hybrid_exact": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 0.9652149999999999,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.0,
+        "speedup_seed_bootstrap_95ci": [
+          1.0,
+          1.0
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "milp": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 6.213249,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 7.242944884064762,
+        "speedup_seed_bootstrap_95ci": [
+          5.734880247012138,
+          9.120838519066767
+        ],
+        "candidate_lower_cost_cases": 0
+      }
+    },
+    "large_grid": {
+      "pareto": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 7,
+        "mean_gap_fraction": 0.31381374427171255,
+        "mean_labels": 529.8333333333334,
+        "median_call_ms": 7.353709500000001,
+        "exact_pairs": 7,
+        "candidate_geomean_speedup_on_exact_pairs": 0.9367029203563708,
+        "speedup_seed_bootstrap_95ci": [
+          0.7471171046289806,
+          1.1746752027750196
+        ],
+        "candidate_lower_cost_cases": 10
+      },
+      "astar": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 13,
+        "mean_gap_fraction": 0.2858770276539761,
+        "mean_labels": 64.375,
+        "median_call_ms": 10.3041645,
+        "exact_pairs": 13,
+        "candidate_geomean_speedup_on_exact_pairs": 0.7479490457885922,
+        "speedup_seed_bootstrap_95ci": [
+          0.5563803479954739,
+          0.9080178415285602
+        ],
+        "candidate_lower_cost_cases": 8
+      },
+      "lazy_astar": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 11,
+        "mean_gap_fraction": 0.31381374427171255,
+        "mean_labels": 79.83333333333333,
+        "median_call_ms": 10.5125975,
+        "exact_pairs": 11,
+        "candidate_geomean_speedup_on_exact_pairs": 0.7357311989789135,
+        "speedup_seed_bootstrap_95ci": [
+          0.5002590720161121,
+          0.8947435714070474
+        ],
+        "candidate_lower_cost_cases": 10
+      },
+      "dual_astar": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 16,
+        "mean_gap_fraction": 0.06629325809833675,
+        "mean_labels": 44.708333333333336,
+        "median_call_ms": 20.8123425,
+        "exact_pairs": 16,
+        "candidate_geomean_speedup_on_exact_pairs": 1.1741231763551423,
+        "speedup_seed_bootstrap_95ci": [
+          1.0375894866405693,
+          1.312776337080307
+        ],
+        "candidate_lower_cost_cases": 4
+      },
+      "bounded_dp": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 6,
+        "mean_gap_fraction": 0.4707206164075689,
+        "mean_labels": 0.0,
+        "median_call_ms": 9.916732,
+        "exact_pairs": 6,
+        "candidate_geomean_speedup_on_exact_pairs": 0.9954855891499568,
+        "speedup_seed_bootstrap_95ci": [
+          0.9507981753329037,
+          1.042273306696513
+        ],
+        "candidate_lower_cost_cases": 15
+      },
+      "window_dp": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 15.410170999999998,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.003555430911953,
+        "speedup_seed_bootstrap_95ci": [
+          0.9522832028972492,
+          1.054247834337833
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "hybrid_exact": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 21,
+        "mean_gap_fraction": 0.0,
+        "mean_labels": 0.0,
+        "median_call_ms": 15.559456,
+        "exact_pairs": 21,
+        "candidate_geomean_speedup_on_exact_pairs": 1.0,
+        "speedup_seed_bootstrap_95ci": [
+          1.0,
+          1.0
+        ],
+        "candidate_lower_cost_cases": 0
+      },
+      "milp": {
+        "correct": 24,
+        "total": 24,
+        "feasible_cases": 21,
+        "proven_optimal": 18,
+        "mean_gap_fraction": 0.014425382506592319,
+        "mean_labels": 0.0,
+        "median_call_ms": 356.314907,
+        "exact_pairs": 18,
+        "candidate_geomean_speedup_on_exact_pairs": 31.782446937688977,
+        "speedup_seed_bootstrap_95ci": [
+          16.446374511576813,
+          62.670988306858575
+        ],
+        "candidate_lower_cost_cases": 3
+      }
+    }
+  },
+  "protocol_sha256": "efcce3006936091ff74e8353267eb876b3891ab0de46283baaaf0cd0987fc30f",
+  "published_reference": {
+    "scope": "Author init+search versus candidate FULL API call at 4096 labels; excluded IPC/file parsing on author side. Not identical timing scopes.",
+    "exact_feasible_pairs": 42,
+    "candidate_geomean_speed_ratio": 20.382905507140702,
+    "seed_bootstrap_95ci": [
+      15.746691318281586,
+      27.610202127417637
+    ],
+    "by_family": {
+      "grid": 21.6206987375955,
+      "rooms": 167.26957322236223,
+      "dense": 32.94708395190609,
+      "deadends": 2.5876550385976085,
+      "tradeoff": 37.38674165762861,
+      "large_grid": 6.221124507200557
+    }
+  },
+  "default_reference_robustness": {
+    "scope": "Author init+search versus candidate full API call at 4096 labels; excludes author parsing/IPC; previously opened maps, fixed configuration robustness check.",
+    "exact_feasible_pairs": 42,
+    "candidate_geomean_speed_ratio": 20.159661399497068,
+    "seed_bootstrap_95ci": [
+      16.237923656928448,
+      25.642344348118026
+    ],
+    "by_family": {
+      "grid": 20.520118912361024,
+      "rooms": 158.5152687782809,
+      "dense": 33.005507692291204,
+      "deadends": 2.669077683968395,
+      "tradeoff": 38.658545569615306,
+      "large_grid": 6.059758041759399
+    }
+  },
+  "evidence_sha256": {
+    "deadline-development.json.gz": "9afb9fe9ef681c858d9ae59369de44324571bf64f07f9c9106e8072b1bb3337a",
+    "deadline-evaluation.json.gz": "6c0de74a71921ac378b2e81bb3e8eba600a71ab1138f74356c629c35573bf12a",
+    "deadline-reference-evaluation.json.gz": "1d9d8fa354e1e54ed5865235696539f33b01b39a87387005e6745b549ea16271",
+    "deadline-reference-default-evaluation.json.gz": "38fd54bdbd50b39a9d832edb36fe72d4a613c4b78880cc43304b02def71f084e"
+  }
+}
