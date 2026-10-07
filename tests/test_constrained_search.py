@@ -10,7 +10,7 @@ from cascade.extract import TraversabilityGraph, VoxelGrid
 from ember.routing.deadline import deadline_route
 from mcu import INT32_MAX, MCUArena
 
-STRATEGIES = ("astar", "lazy_astar", "dual_astar")
+STRATEGIES = ("astar", "lazy_astar", "dual_astar", "hybrid_exact", "bounded_dp")
 
 
 def graph_from_edges(n, edges, lengths):
@@ -210,3 +210,55 @@ def test_heuristic_tables_preserve_integer_ties_above_float_exact_range(multipli
     table = _table(reverse, (3,), MCUArena(4096), multiplier=multiplier)
     assert table[0][0] == 2000000000 + multiplier * 2000000000
     assert _path(table, 0, (3,)) == (0, 2, 3)
+
+
+def test_hybrid_dp_fit_boundary_preserves_prefix_and_honest_fallback():
+    graph = graph_from_edges(4, [(0, 1), (1, 3), (0, 2), (2, 3)], [1, 1, 4, 4])
+    risk = np.array([0.0, 10.0, 0.0, 0.0])
+    for capacity in (263, 264):
+        arena = MCUArena(capacity)
+        prefix = arena.alloc(3)
+        prefix[:] = b"old"
+        result = deadline_route(
+            graph,
+            0,
+            (3,),
+            risk,
+            available_steps=7,
+            walking_speed_m_s=1,
+            dt_s=1,
+            max_labels=1,
+            arena=arena,
+            strategy="hybrid_exact",
+        )
+        assert result.feasible and result.travel_steps <= 7
+        assert bytes(prefix) == b"old" and arena.used == 3
+        assert arena.high_water <= capacity
+        if capacity == 264:
+            assert result.optimal and result.dynamic_states == 32
+            assert result.estimated_objective == 12.0
+        else:
+            assert result.dynamic_states == 0
+            assert result.lower_bound_q16 <= 12 * 65536
+            if result.optimal:
+                assert result.estimated_objective == 12.0
+            else:
+                assert result.resource_fallback
+
+
+def test_safeguard_uses_hybrid_for_invalid_proposal():
+    from ember.routing.deadline import safeguard_route_deadline
+
+    graph = graph_from_edges(4, [(0, 1), (1, 3), (0, 2), (2, 3)], [1, 1, 4, 4])
+    result = safeguard_route_deadline(
+        graph,
+        0,
+        (3,),
+        np.array([0.0, 10.0, 0.0, 0.0]),
+        (0, 2, 3),
+        available_steps=7,
+        walking_speed_m_s=1,
+        dt_s=1,
+    )
+    assert result.search_strategy == "hybrid_exact"
+    assert result.proposal_replaced and result.optimal and result.dynamic_states == 32

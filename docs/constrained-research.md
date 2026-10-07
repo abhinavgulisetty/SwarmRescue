@@ -30,8 +30,9 @@ The completed 0.4.0 Bellman evaluation remains unchanged.
 ## Implemented candidate and baselines
 
 `deadline_route(..., strategy=...)` preserves the legacy `pareto` default and
-its firmware conformance. Additional choices are `astar`, `lazy_astar` and
-`dual_astar`. The A* methods compute exact cheapest and fastest completion
+its firmware conformance. Additional choices are `astar`, `lazy_astar`, `dual_astar`, `bounded_dp`
+and `hybrid_exact`. The production safeguard now chooses `hybrid_exact` when
+a proposed route is infeasible; it preserves feasible proposals. The A* methods compute exact cheapest and fastest completion
 tables, prune infeasible continuations, and retain improved feasible incumbents
 instead of automatically reverting to the fastest route on label exhaustion.
 
@@ -58,8 +59,8 @@ numeric arena accounting is not a whole-MCU RAM claim.
 
 ## Validation and experimental boundaries
 
-Three exact methods match an independent time-expanded dynamic-programming
-oracle on 200 randomized problems each. Additional capped searches verify
+Five exact methods match an independent time-expanded dynamic-programming
+oracle on 200 randomized problems each (1,000 comparisons). Additional capped searches verify
 feasibility, route costs, lower bounds, honest optimality flags, arena prefix
 preservation and saturated label-range certificates. Legacy firmware behavior
 continues to match the original Pareto solver.
@@ -70,3 +71,46 @@ and numeric arena peaks. Failed, infeasible and resource-capped cases must stay
 in the results. Timing ratios for exact solving compare successful exact pairs;
 a quick suboptimal fallback is not timed as an exact solver win. Author-paper
 speedup figures are not project measurements.
+
+
+## Hybrid architecture
+
+The candidate first checks exact fastest and cheapest path certificates. If the
+cheapest route misses the deadline, a time-state table with `(deadline+1)*N`
+int64 entries supplies an exact Bellman dynamic program when it fits in the
+remaining numeric arena. Vectorized scatter-min updates avoid Python label
+allocation and support non-unit traversal times. Positive costs make the
+recovered witness acyclic. Dead certificate storage is recycled without changing
+the caller's arena prefix. When the table cannot fit, dual-bound A* continues.
+The separate `bounded_dp` comparator uses the same numeric ceiling and returns
+an honest feasible fallback if its table cannot fit.
+
+The development experiment has 60 matched cases: four seeds, five families and
+three label capacities. Hybrid and bounded DP prove all 45 feasible cases;
+legacy Pareto proves 23 and the A* variants prove 43. The legacy mean estimated
+objective gap is 6.10%; hybrid has zero gap. Hybrid's full-call speed is only
+about 1.23x legacy on mutually exact cases and approximately equal to the other
+specialized searches. Native HiGHS MILP is 13.36x slower on these small models.
+These figures selected the implementation; they are not held-out results.
+
+## Published implementation comparator
+
+The independent comparator uses the authors' actual NWRCA* code at
+[revision 4098543d0c5d78afc977017b5abf6054671a8c43](https://bitbucket.org/s-ahmadi/multiobj/commits/4098543d0c5d78afc977017b5abf6054671a8c43).
+AGPL upstream source and binaries are retained only in ignored research outputs,
+and are not bundled into this project. Its build uses DIM=2, int32 costs,
+GCC -O3 -DPATH and the recommended integer bucket queue without tie-breaking.
+Only the explicit resource-budget adapter changes problem input; the search is
+unchanged. An unused three-objective dispatcher branch is omitted for DIM=2.
+
+Our external adapter adds a positive one-unit cost/time terminal arc from each
+exit, raises the deadline by one and subtracts one from the returned objective.
+This exactly preserves the any-exit feasible routes and integer optimum. The
+reference returns correct costs/infeasibility on all 20 development maps.
+Optional path printing segfaults and the documented hybrid queue raises SIGFPE
+on the development tradeoff input, including a double-cost build. Those
+configurations are not counted as timing wins. The successful bucket build
+reports initialization plus search time; file parsing and IPC are excluded.
+This scope is narrower than our full API-call timing. Native reference memory
+is unbounded and cannot be advertised as a matched 200KiB whole-MCU comparison.
+The adapter records actual exit status and preserves failed cases.

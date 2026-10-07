@@ -35,6 +35,7 @@ class DeadlineRoute:
     search_strategy: str = "pareto"
     expanded_labels: int = 0
     preprocessing_runs: int = 0
+    dynamic_states: int = 0
 
     @property
     def certified_gap(self) -> float | None:
@@ -58,7 +59,14 @@ def deadline_route(
     strategy: str = "pareto",
 ) -> DeadlineRoute:
     """Minimize length plus estimated exposure subject to a traversal deadline."""
-    if strategy not in ("pareto", "astar", "lazy_astar", "dual_astar"):
+    if strategy not in (
+        "pareto",
+        "astar",
+        "lazy_astar",
+        "dual_astar",
+        "hybrid_exact",
+        "bounded_dp",
+    ):
         raise ValueError("unknown deadline search strategy")
     risk = np.asarray(risk_cost, dtype=float)
     if (
@@ -77,8 +85,9 @@ def deadline_route(
         not isinstance(available_steps, int)
         or isinstance(available_steps, bool)
         or available_steps < 0
+        or available_steps >= INT32_MAX
     ):
-        raise ValueError("available_steps must be a nonnegative integer")
+        raise ValueError("available_steps must fit the nonnegative int32 clock")
     if (
         not isinstance(max_labels, int)
         or isinstance(max_labels, bool)
@@ -101,19 +110,22 @@ def deadline_route(
             "graph edges require valid endpoints and finite nonnegative lengths"
         )
     adjacent = [[] for _ in range(graph.n_nodes)]
-    for (left, right), length in zip(graph.edges, graph.edge_cost, strict=True):
-        travel = float(length) / walking_speed_m_s / dt_s
-        if not math.isfinite(travel):
-            raise ValueError("edge traversal time exceeds finite range")
-        steps = max(1, math.ceil(travel))
-        for source, target in ((int(left), int(right)), (int(right), int(left))):
-            encoded = (float(length) + risk[target] * steps * dt_s) * Q16_SCALE
-            if not math.isfinite(encoded) or encoded >= INT32_MAX:
-                raise ValueError("edge objective exceeds integer finite range")
-            objective = round(encoded)
-            if objective >= INT32_MAX:
-                raise ValueError("edge objective exceeds integer finite range")
-            adjacent[source].append((target, steps, max(1, objective)))
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        travel = np.maximum(1.0, np.ceil(graph.edge_cost / walking_speed_m_s / dt_s))
+        if not np.all(np.isfinite(travel)) or np.any(travel >= INT32_MAX):
+            raise ValueError("edge traversal time exceeds int32 clock range")
+        steps = travel.astype(np.int64)
+        encoded = np.rint(
+            (graph.edge_cost[:, None] + risk[graph.edges] * steps[:, None] * dt_s)
+            * Q16_SCALE
+        )
+        if not np.all(np.isfinite(encoded)) or np.any(encoded >= INT32_MAX):
+            raise ValueError("edge objective exceeds integer finite range")
+        costs = np.maximum(1, encoded).astype(np.int64)
+    for index, (left, right) in enumerate(graph.edges):
+        a, b, duration = int(left), int(right), int(steps[index])
+        adjacent[a].append((b, duration, int(costs[index, 1])))
+        adjacent[b].append((a, duration, int(costs[index, 0])))
     goal_set = set(goals)
     if strategy != "pareto":
         from ember.routing.constrained import constrained_search
@@ -285,8 +297,9 @@ def safeguard_route_deadline(
     walking_speed_m_s,
     dt_s,
     arena=None,
+    strategy="hybrid_exact",
 ):
-    """Preserve a feasible proposal; replace an infeasible one by Pareto routing.
+    """Preserve a feasible proposal; replace an infeasible one by exact hybrid routing.
 
     With common contact times, a static graph and the declared edge traversal
     clock, every feasible legacy rescue stays feasible. If any path meets the
@@ -331,6 +344,7 @@ def safeguard_route_deadline(
             walking_speed_m_s=walking_speed_m_s,
             dt_s=dt_s,
             arena=arena,
+            strategy=strategy,
         ),
         proposal_replaced=True,
     )

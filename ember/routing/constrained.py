@@ -13,8 +13,6 @@ import heapq
 from dataclasses import replace
 
 import numpy as np
-from scipy.sparse import coo_matrix
-from scipy.sparse.csgraph import dijkstra
 
 from ember.routing.deadline import DeadlineRoute
 from mcu import INT32_MAX, Q16_SCALE, MCUArena
@@ -38,57 +36,19 @@ def _table(reverse, goals, storage, *, multiplier=None):
     primary = _vector(storage, n, np.int64, INF)
     secondary = _vector(storage, n, np.int64, INF)
     following = _vector(storage, n, np.int32, -1)
-    # Float64 Dijkstra is exact for integer sums strictly below 2**53. Outside
-    # that proven range retain the integer heap; never round an unsafe bound.
-    largest = max(
-        (
-            steps if multiplier is None else cost + multiplier * steps
-            for row in reverse
-            for _, steps, cost in row
-        ),
-        default=0,
-    )
-    if n * largest < 2**53:
-        entries = {}
-        for target, row in enumerate(reverse):
-            for source, steps, cost in row:
-                weight = steps if multiplier is None else cost + multiplier * steps
-                key = (target, source)
-                entries[key] = min(weight, entries.get(key, weight))
-        rows, columns, weights = [], [], []
-        for (target, source), weight in entries.items():
-            rows.append(target)
-            columns.append(source)
-            weights.append(float(weight))
-        matrix = coo_matrix((weights, (rows, columns)), shape=(n, n)).tocsr()
-        distances = dijkstra(
-            matrix, directed=True, indices=sorted(set(goals)), min_only=True
-        )
-        finite = np.isfinite(distances)
-        primary[finite] = distances[finite].astype(np.int64)
-        secondary[np.array(sorted(set(goals)), dtype=np.int32)] = 0
-        # Recover fastest/cost-lowest ties on the DAG of optimal primary arcs.
-        for target in np.argsort(distances):
-            if not finite[target]:
-                break
-            for source, steps, cost in reverse[target]:
-                weight = steps if multiplier is None else cost + multiplier * steps
-                if int(primary[source]) != int(primary[target]) + weight:
-                    continue
-                candidate = int(secondary[target]) + (
-                    cost if multiplier is None else steps
-                )
-                if candidate < secondary[source]:
-                    secondary[source] = candidate
-                    following[source] = target
-        return primary, secondary, following
+    # Transient host lists avoid repeated NumPy scalar boxing in the heap.
+    # Persistent numeric tables occupy the measured arena; host temporaries
+    # are explicitly outside whole-MCU memory accounting.
+    first_values = [INF] * n
+    second_values = [INF] * n
+    next_values = [-1] * n
     queue = []
     for goal in sorted(set(goals)):
-        primary[goal] = secondary[goal] = 0
+        first_values[goal] = second_values[goal] = 0
         heapq.heappush(queue, (0, 0, goal))
     while queue:
         first, second, node = heapq.heappop(queue)
-        if (first, second) != (primary[node], secondary[node]):
+        if (first, second) != (first_values[node], second_values[node]):
             continue
         for source, steps, cost in reverse[node]:
             if multiplier is None:
@@ -97,10 +57,13 @@ def _table(reverse, goals, storage, *, multiplier=None):
                 candidate = (first + cost + multiplier * steps, second + steps)
             if max(candidate) >= INF:
                 continue
-            if candidate < (primary[source], secondary[source]):
-                primary[source], secondary[source] = candidate
-                following[source] = node
+            if candidate < (first_values[source], second_values[source]):
+                first_values[source], second_values[source] = candidate
+                next_values[source] = node
                 heapq.heappush(queue, (*candidate, source))
+    primary[:] = first_values
+    secondary[:] = second_values
+    following[:] = next_values
     return primary, secondary, following
 
 
@@ -115,6 +78,54 @@ def _path(table, start, goals):
             raise RuntimeError("invalid positive-weight shortest-path certificate")
         route.append(target)
     return tuple(route)
+
+
+def _resource_dp(adjacent, start, goals, deadline, storage):
+    """Vectorized exact Bellman DP on remaining time, with no label pruning."""
+    n = len(adjacent)
+    table = np.frombuffer(
+        storage.alloc((deadline + 1) * n * 8, alignment=8), dtype=np.int64
+    ).reshape(deadline + 1, n)
+    table[:] = INF
+    goal_ids = np.array(sorted(set(goals)), dtype=np.int32)
+    table[:, goal_ids] = 0
+    flat = [
+        (u, v, steps, cost) for u, row in enumerate(adjacent) for v, steps, cost in row
+    ]
+    if flat:
+        source, target, duration, weight = np.array(flat, dtype=np.int64).T
+        largest_cost = int(np.max(weight))
+        if largest_cost * deadline >= INF:
+            raise ValueError("dynamic cost exceeds int64 range")
+        for remaining in range(1, deadline + 1):
+            table[remaining] = table[remaining - 1]
+            usable = duration <= remaining
+            child = table[remaining - duration[usable], target[usable]]
+            finite = child != INF
+            # INF is excluded before addition so an unreachable state cannot wrap.
+            candidates = child[finite] + weight[usable][finite]
+            np.minimum.at(table[remaining], source[usable][finite], candidates)
+    objective = int(table[deadline, start])
+    if objective == INF:
+        return (), 0, 0
+    route = [start]
+    remaining = deadline
+    goals = set(goals)
+    while route[-1] not in goals:
+        node = route[-1]
+        options = [
+            (steps, target, cost)
+            for target, steps, cost in adjacent[node]
+            if steps <= remaining
+            and table[remaining - steps, target] != INF
+            and int(table[remaining - steps, target]) + cost == table[remaining, node]
+        ]
+        if not options:
+            raise RuntimeError("dynamic-programming witness missing")
+        steps, target, _ = min(options)
+        route.append(target)
+        remaining -= steps
+    return tuple(route), deadline - remaining, objective
 
 
 def constrained_search(
@@ -139,7 +150,7 @@ def constrained_search(
     # Two exact certificates (40*N bytes), alignment and at least one label.
     if storage.capacity - ((offset + 7) & ~7) < 40 * n + 32:
         return replace(legacy_fallback(), search_strategy="pareto_memory_fallback")
-    runs, expanded, used = 0, 0, 0
+    runs, expanded, used, dynamic_states = 0, 0, 0, 0
     reverse = [[] for _ in adjacent]
     edge_scales = []
     for source, neighbours in enumerate(adjacent):
@@ -162,6 +173,7 @@ def constrained_search(
             search_strategy=strategy,
             expanded_labels=expanded,
             preprocessing_runs=runs,
+            dynamic_states=dynamic_states,
         )
 
     try:
@@ -176,6 +188,17 @@ def constrained_search(
         if best_time == deadline:
             bound = best_cost
             return result(optimal=True)
+        dp_bytes = (deadline + 1) * n * 8
+        dp_fits = dp_bytes <= storage.capacity - ((offset + 7) & ~7)
+        if strategy == "bounded_dp":
+            if not dp_fits:
+                return result(fallback=True)
+            storage.used = offset
+            best_route, best_time, best_cost = _resource_dp(
+                adjacent, start, goals, deadline, storage
+            )
+            dynamic_states = (deadline + 1) * n
+            return result(optimal=True)
         cheap = _table(reverse, goals, storage, multiplier=0)
         runs += 1
         bound = int(cheap[0][start])
@@ -183,10 +206,19 @@ def constrained_search(
             best_route = _path(cheap, start, goals)
             best_time, best_cost = int(cheap[1][start]), int(cheap[0][start])
             return result(optimal=True)
+        if strategy == "hybrid_exact" and dp_fits:
+            # Tables are dead after this early return; recycle them, preserving
+            # the caller's unrelated arena prefix and the same numeric ceiling.
+            storage.used = offset
+            best_route, best_time, best_cost = _resource_dp(
+                adjacent, start, goals, deadline, storage
+            )
+            dynamic_states = (deadline + 1) * n
+            return result(optimal=True)
         # Reserve the requested label quota before allocating dual tables.
         reserve = min(max_labels, max(1, (storage.capacity - storage.used - 8) // 17))
         tables = []
-        if strategy == "dual_astar":
+        if strategy in ("dual_astar", "hybrid_exact"):
             scale = int(np.median(edge_scales)) if edge_scales else 1
             multiplier, low, high = max(1, scale), 0, None
             for _ in range(MAX_DUAL_RUNS):

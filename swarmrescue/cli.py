@@ -19,6 +19,7 @@ COMMANDS = {
     "view": "cascade.view",
     "evaluate": "eval.procedural",
     "solver-benchmark": "eval.solver_benchmark",
+    "deadline-benchmark": "eval.constrained_benchmark",
     "range-evaluation": "eval.range_delivery",
     "firmware-replay": "eval.firmware_replay",
     "firmware-build": "mcu.runtime",

@@ -26,7 +26,15 @@ from eval.procedural import _exit_nodes, _room_graph, _with_seeded_blockage
 from mcu import MCUArena
 
 FAMILIES = ("grid", "rooms", "dense", "deadends", "tradeoff")
-METHODS = ("pareto", "astar", "lazy_astar", "dual_astar", "milp")
+METHODS = (
+    "pareto",
+    "astar",
+    "lazy_astar",
+    "dual_astar",
+    "bounded_dp",
+    "hybrid_exact",
+    "milp",
+)
 DEVELOPMENT_SEEDS = tuple(range(52000, 52004))
 EVALUATION_SEEDS = tuple(range(62000, 62008))
 LABEL_CAPS = (32, 128, 4096)
@@ -319,7 +327,7 @@ def benchmark_case(case, seed, family, capacity):
     }
 
 
-def summarize(rows, candidate="dual_astar"):
+def summarize(rows, candidate="hybrid_exact"):
     summary = {}
     for method in METHODS:
         selected = [r for r in rows if r["optimum_q16"] is not None]
@@ -359,6 +367,32 @@ def summarize(rows, candidate="dual_astar"):
             summary[method]["candidate_geomean_speedup_on_exact_pairs"] = float(
                 np.exp(np.mean(np.log(ratios)))
             )
+        if ratios:
+            # Resample whole map seeds: capacities and families share inputs.
+            seed_ids = sorted({r["seed"] for r in pairs})
+            sums = np.array(
+                [
+                    sum(
+                        math.log(
+                            r["results"][method]["median_ms"]
+                            / r["results"][candidate]["median_ms"]
+                        )
+                        for r in pairs
+                        if r["seed"] == seed
+                    )
+                    for seed in seed_ids
+                ]
+            )
+            counts = np.array(
+                [sum(r["seed"] == seed for r in pairs) for seed in seed_ids]
+            )
+            draws = np.random.default_rng(802913).integers(
+                0, len(seed_ids), size=(3000, len(seed_ids))
+            )
+            boot = np.exp(sums[draws].sum(axis=1) / counts[draws].sum(axis=1))
+            summary[method]["speedup_seed_bootstrap_95ci"] = np.quantile(
+                boot, [0.025, 0.975]
+            ).tolist()
         summary[method]["candidate_lower_cost_cases"] = sum(
             r["results"][candidate]["cost_q16"] < r["results"][method]["cost_q16"]
             for r in selected
@@ -382,6 +416,7 @@ def main(argv=None):
         "cascade/params.py",
         "cascade/rng.py",
         "cascade/extract.py",
+        "eval/reference_constrained.py",
     )
     hashes = {p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in sources}
     protocol_path = Path(__file__).with_name("constrained_protocol.json")
@@ -408,7 +443,7 @@ def main(argv=None):
         raise RuntimeError("constrained benchmark sources changed during execution")
     report = {
         "split": args.split,
-        "candidate": "dual_astar",
+        "candidate": "hybrid_exact",
         "seeds": list(seeds),
         "families": list(FAMILIES),
         "label_caps": list(LABEL_CAPS),
@@ -427,6 +462,13 @@ def main(argv=None):
         ),
         "cases": rows,
         "summary": summarize(rows),
+        "by_family": {
+            family: summarize([r for r in rows if r["family"] == family])
+            for family in FAMILIES
+        },
+        "protocol_sha256": hashlib.sha256(protocol_path.read_bytes()).hexdigest()
+        if args.split == "evaluation"
+        else None,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n")
