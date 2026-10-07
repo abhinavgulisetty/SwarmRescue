@@ -66,6 +66,7 @@ def deadline_route(
         "dual_astar",
         "hybrid_exact",
         "bounded_dp",
+        "window_dp",
     ):
         raise ValueError("unknown deadline search strategy")
     risk = np.asarray(risk_cost, dtype=float)

@@ -1,4 +1,4 @@
-"""Exact resource-constrained A* with integer Lagrangian certificates.
+"""Exact deadline routing with bounded dynamic programming and dual A*.
 
 Positive time and cost edges, one hard time resource. Standard A* and a
 single-resource lazy-dominance variant are explicit matched baselines.
@@ -128,6 +128,67 @@ def _resource_dp(adjacent, start, goals, deadline, storage):
     return tuple(route), deadline - remaining, objective
 
 
+def _window_dp(adjacent, start, goals, deadline, minimum, maximum, storage):
+    """Exact DP restricted to resource states that can occur on feasible paths."""
+    n = len(adjacent)
+    low = _vector(storage, n, np.int64, 0)
+    high = _vector(storage, n, np.int64, 0)
+    offsets = _vector(storage, n + 1, np.int64, 0)
+    low[:], high[:] = minimum, maximum
+    widths = np.maximum(0, high - low + 1)
+    offsets[1:] = np.cumsum(widths)
+    values = _vector(storage, int(offsets[-1]), np.int64, INF)
+    goal_set = set(goals)
+    for goal in goal_set:
+        values[offsets[goal] : offsets[goal + 1]] = 0
+    flat = [(u, v, t, c) for u, row in enumerate(adjacent) for v, t, c in row]
+    source, target, duration, weight = np.array(flat, dtype=np.int64).T
+    if int(weight.max()) * deadline >= INF:
+        raise ValueError("dynamic cost exceeds int64 range")
+    for remaining in range(1, deadline + 1):
+        nodes = np.flatnonzero((low <= remaining) & (remaining <= high))
+        inherited = nodes[low[nodes] < remaining]
+        here = offsets[inherited] + remaining - low[inherited]
+        values[here] = values[here - 1]
+        child_time = remaining - duration
+        usable = (
+            (low[source] <= remaining)
+            & (remaining <= high[source])
+            & (low[target] <= child_time)
+            & (child_time <= high[target])
+        )
+        u, v, time_left = source[usable], target[usable], child_time[usable]
+        child = values[offsets[v] + time_left - low[v]]
+        finite = child != INF
+        np.minimum.at(
+            values,
+            offsets[u[finite]] + remaining - low[u[finite]],
+            child[finite] + weight[usable][finite],
+        )
+    best = int(values[offsets[start] + deadline - low[start]])
+    if best == INF:
+        raise RuntimeError("feasible corridor lost its path")
+    route, remaining = [start], deadline
+    while route[-1] not in goal_set:
+        node = route[-1]
+        current = int(values[offsets[node] + remaining - low[node]])
+        options = []
+        for target_node, steps, cost in adjacent[node]:
+            child_time = remaining - steps
+            if low[target_node] <= child_time <= high[target_node]:
+                child = int(
+                    values[offsets[target_node] + child_time - low[target_node]]
+                )
+                if child != INF and child + cost == current:
+                    options.append((steps, target_node))
+        if not options:
+            raise RuntimeError("corridor witness missing")
+        steps, target_node = min(options)
+        route.append(target_node)
+        remaining -= steps
+    return tuple(route), deadline - remaining, best
+
+
 def constrained_search(
     adjacent, start, goals, deadline, max_labels, *, arena, strategy, legacy_fallback
 ):
@@ -215,6 +276,30 @@ def constrained_search(
             )
             dynamic_states = (deadline + 1) * n
             return result(optimal=True)
+        if strategy in ("hybrid_exact", "window_dp"):
+            certificate_end = storage.used
+            if storage.capacity - storage.used >= 20 * n + 8:
+                from_start = _table(adjacent, (start,), storage)
+                runs += 1
+                # Avoid INF subtraction/overflow for disconnected vertices.
+                reachable = (fast[0] != INF) & (from_start[0] != INF)
+                minimum = np.where(reachable, fast[0], 1).copy()
+                maximum = np.where(reachable, deadline - from_start[0], 0).copy()
+                states = sum(
+                    max(0, int(hi) - int(lo) + 1)
+                    for lo, hi in zip(minimum, maximum, strict=True)
+                )
+                packed_bytes = 24 * n + 8 + 8 * states
+                if packed_bytes <= storage.capacity - ((offset + 7) & ~7):
+                    storage.used = offset
+                    best_route, best_time, best_cost = _window_dp(
+                        adjacent, start, goals, deadline, minimum, maximum, storage
+                    )
+                    dynamic_states = states
+                    return result(optimal=True)
+                storage.used = certificate_end
+            if strategy == "window_dp":
+                return result(fallback=True)
         # Reserve the requested label quota before allocating dual tables.
         reserve = min(max_labels, max(1, (storage.capacity - storage.used - 8) // 17))
         tables = []

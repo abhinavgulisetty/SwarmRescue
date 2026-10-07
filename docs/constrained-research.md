@@ -31,7 +31,7 @@ The completed 0.4.0 Bellman evaluation remains unchanged.
 
 `deadline_route(..., strategy=...)` preserves the legacy `pareto` default and
 its firmware conformance. Additional choices are `astar`, `lazy_astar`, `dual_astar`, `bounded_dp`
-and `hybrid_exact`. The production safeguard now chooses `hybrid_exact` when
+and `hybrid_exact` and `window_dp`. The production safeguard now chooses `hybrid_exact` when
 a proposed route is infeasible; it preserves feasible proposals. The A* methods compute exact cheapest and fastest completion
 tables, prune infeasible continuations, and retain improved feasible incumbents
 instead of automatically reverting to the fastest route on label exhaustion.
@@ -59,8 +59,8 @@ numeric arena accounting is not a whole-MCU RAM claim.
 
 ## Validation and experimental boundaries
 
-Five exact methods match an independent time-expanded dynamic-programming
-oracle on 200 randomized problems each (1,000 comparisons). Additional capped searches verify
+Six exact methods match an independent time-expanded dynamic-programming
+oracle on 200 randomized problems each (1,200 comparisons). Additional capped searches verify
 feasibility, route costs, lower bounds, honest optimality flags, arena prefix
 preservation and saturated label-range certificates. Legacy firmware behavior
 continues to match the original Pareto solver.
@@ -85,7 +85,7 @@ the caller's arena prefix. When the table cannot fit, dual-bound A* continues.
 The separate `bounded_dp` comparator uses the same numeric ceiling and returns
 an honest feasible fallback if its table cannot fit.
 
-The development experiment has 60 matched cases: four seeds, five families and
+The initial small-map development experiment had 60 matched cases: four seeds, five families and
 three label capacities. Hybrid and bounded DP prove all 45 feasible cases;
 legacy Pareto proves 23 and the A* variants prove 43. The legacy mean estimated
 objective gap is 6.10%; hybrid has zero gap. Hybrid's full-call speed is only
@@ -114,3 +114,45 @@ reports initialization plus search time; file parsing and IPC are excluded.
 This scope is narrower than our full API-call timing. Native reference memory
 is unbounded and cannot be advertised as a matched 200KiB whole-MCU comparison.
 The adapter records actual exit status and preserves failed cases.
+
+## Exact feasible-time corridor
+
+On larger maps, the full time-state rectangle may exceed the numeric arena.
+The candidate also tries a packed exact table before falling back to dual A*.
+Let `a(v)` be the fastest time from the start and `b(v)` the fastest time to any
+exit. A state with remaining time `r` on a feasible path must satisfy
+`b(v) <= r <= deadline - a(v)`. Only this interval is stored for each node;
+unreachable nodes have an empty interval. No approximate buckets or cost labels
+are discarded. Any continuation from a reachable prefix stays inside these
+intervals by the shortest-path triangle inequality, so this restriction
+preserves every feasible optimal route. Positive traversal times allow exact
+increasing-resource Bellman updates and positive costs prevent witness cycles.
+
+Three int64 index arrays plus the packed int64 cost entries count against the
+same caller arena. Transient host arrays are outside whole-MCU accounting.
+`window_dp` is an explicit independent comparator using the same corridor
+technique, so a candidate win is not attributed to comparison against only an
+uncompressed DP. The large-grid family uses opposite-wall endpoints and a
+central hazard band: avoiding that band requires extra travel time. Its 1,024–
+1,600 nodes make the ordinary time-state table exceed the 200KiB numeric limit.
+
+Reproduce the external reference without bundling its AGPL source:
+
+```bash
+python -m eval.build_constrained_reference --out outputs/reference-nwrca
+python -m eval.reference_constrained --binary outputs/reference-nwrca/src/bin/roadhog --split development --output outputs/reference-development.json
+```
+
+A local pinned upstream checkout can be supplied with `--repository` to avoid a
+network clone. Exact source and binary identities are recorded in the build
+receipt. The reference compiler and library flags follow the upstream Makefile.
+
+
+The final development suite contains 72 cases, including the nontrivial large
+maps. Hybrid and window DP prove all 54 feasible cases with zero objective gap;
+legacy Pareto proves 26 (mean gap 9.26%), ordinary A* 49, lazy A* 48,
+dual A* 50 and full-table bounded DP 48. The hybrid is approximately equal to
+ordinary/lazy A* in full-call latency on mutually proven-optimal pairs, 1.07x
+faster than dual A*, and 14.84x faster than native HiGHS. The development timing
+and its seed-bootstrap intervals guide selection only. Evaluation seeds remain
+unopened until the source-hashed protocol is committed.

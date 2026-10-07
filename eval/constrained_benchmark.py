@@ -25,13 +25,14 @@ from ember.routing.deadline import deadline_route
 from eval.procedural import _exit_nodes, _room_graph, _with_seeded_blockage
 from mcu import MCUArena
 
-FAMILIES = ("grid", "rooms", "dense", "deadends", "tradeoff")
+FAMILIES = ("grid", "rooms", "dense", "deadends", "tradeoff", "large_grid")
 METHODS = (
     "pareto",
     "astar",
     "lazy_astar",
     "dual_astar",
     "bounded_dp",
+    "window_dp",
     "hybrid_exact",
     "milp",
 )
@@ -151,7 +152,7 @@ def make_case(seed, family):
         start = 0
         goals = (n - 1,)
     else:
-        side = int(rng.choice([12, 16, 20]))
+        side = int(rng.choice([32, 40] if family == "large_grid" else [12, 16, 20]))
         n = side * side
         edges = []
         for i in range(n):
@@ -171,6 +172,16 @@ def make_case(seed, family):
             )
         start = 0
         goals = (n - 1,)
+        if family == "large_grid":
+            # Opposite-wall endpoints force a genuine cost/time tradeoff:
+            # avoiding the central hazard band adds traversal time.
+            center_y = side // 2
+            start = center_y * side
+            goals = (start + side - 1,)
+            risk += 40 * np.exp(
+                -(((positions[:, 0] - side / 2) / 2) ** 2)
+                - ((positions[:, 1] - center_y) / (side / 4)) ** 2
+            )
     adjacent = arcs(graph, risk)
     fast_time = _pair_distance(adjacent, start, set(goals), True)[0]
     cheap_time = _pair_distance(adjacent, start, set(goals), False)[1]

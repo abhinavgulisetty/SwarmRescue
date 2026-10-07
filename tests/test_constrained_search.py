@@ -10,7 +10,14 @@ from cascade.extract import TraversabilityGraph, VoxelGrid
 from ember.routing.deadline import deadline_route
 from mcu import INT32_MAX, MCUArena
 
-STRATEGIES = ("astar", "lazy_astar", "dual_astar", "hybrid_exact", "bounded_dp")
+STRATEGIES = (
+    "astar",
+    "lazy_astar",
+    "dual_astar",
+    "hybrid_exact",
+    "bounded_dp",
+    "window_dp",
+)
 
 
 def graph_from_edges(n, edges, lengths):
@@ -215,7 +222,7 @@ def test_heuristic_tables_preserve_integer_ties_above_float_exact_range(multipli
 def test_hybrid_dp_fit_boundary_preserves_prefix_and_honest_fallback():
     graph = graph_from_edges(4, [(0, 1), (1, 3), (0, 2), (2, 3)], [1, 1, 4, 4])
     risk = np.array([0.0, 10.0, 0.0, 0.0])
-    for capacity in (263, 264):
+    for capacity in (255, 256, 263, 264):
         arena = MCUArena(capacity)
         prefix = arena.alloc(3)
         prefix[:] = b"old"
@@ -236,6 +243,9 @@ def test_hybrid_dp_fit_boundary_preserves_prefix_and_honest_fallback():
         assert arena.high_water <= capacity
         if capacity == 264:
             assert result.optimal and result.dynamic_states == 32
+            assert result.estimated_objective == 12.0
+        elif capacity >= 256:
+            assert result.optimal and result.dynamic_states == 18
             assert result.estimated_objective == 12.0
         else:
             assert result.dynamic_states == 0
@@ -262,3 +272,22 @@ def test_safeguard_uses_hybrid_for_invalid_proposal():
     )
     assert result.search_strategy == "hybrid_exact"
     assert result.proposal_replaced and result.optimal and result.dynamic_states == 32
+
+
+@pytest.mark.parametrize("strategy", ["bounded_dp", "window_dp", "hybrid_exact"])
+def test_dynamic_certificates_preserve_costs_above_label_integer_range(strategy):
+    graph = graph_from_edges(5, [(0, 1), (1, 3), (0, 2), (2, 3)], [1, 1, 4, 4])
+    # Node 4 is disconnected; individual edges fit int32 but optimal path does not.
+    result = deadline_route(
+        graph,
+        0,
+        (3,),
+        np.array([0.0, 32760.0, 0.0, 8000.0, 0.0]),
+        available_steps=7,
+        walking_speed_m_s=1,
+        dt_s=1,
+        strategy=strategy,
+    )
+    assert result.optimal and result.feasible and result.certified_gap == 0
+    assert result.estimated_objective == 40762.0
+    assert result.estimated_objective * 65536 > INT32_MAX
