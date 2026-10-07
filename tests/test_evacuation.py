@@ -22,7 +22,7 @@ def _scene(*, wall=False, count=1):
     ET.SubElement(root, "option", timestep="0.002", integrator="implicitfast")
     world = ET.SubElement(root, "worldbody")
     ET.SubElement(
-        world, "geom", type="plane", size="10 10 0.1", friction="0.08 0.01 0.001"
+        world, "geom", type="plane", size="10 10 0.1", friction="1.0 0.02 0.005"
     )
     if wall:
         ET.SubElement(

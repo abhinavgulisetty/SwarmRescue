@@ -35,6 +35,7 @@ class EvacuationConfig:
     waypoint_radius_m: float = 0.12
     safe_zone_margin_m: float = 0.5
     maximum_trail_points: int = 2048
+    sliding_friction: float = 0.08
 
     def __post_init__(self):
         for name in (
@@ -56,6 +57,8 @@ class EvacuationConfig:
                 raise ValueError(f"{name} must be finite and positive")
         if not np.isfinite(self.sensor_noise_m) or self.sensor_noise_m < 0:
             raise ValueError("sensor noise must be finite and nonnegative")
+        if not np.isfinite(self.sliding_friction) or self.sliding_friction < 0:
+            raise ValueError("survivor friction must be finite and nonnegative")
         if self.sensor_radius_m < self.contact_radius_m:
             raise ValueError("sensor radius must cover contact radius")
         if (
@@ -101,7 +104,8 @@ def survivor_bodies(sites, config=None):
             pos=f"0 0 {cfg.height_m / 2}",
             mass=str(cfg.mass_kg),
             rgba="0.95 0.9 0.65 1",
-            friction="0.08 0.01 0.001",
+            friction=f"{cfg.sliding_friction} 0.01 0.001",
+            priority="1",
             contype="4",
             conaffinity="1",
             condim="3",
@@ -293,3 +297,7 @@ class EvacuationTeam:
                 and not np.isfinite(self.evacuation_time_s[patient])
             ):
                 self.evacuation_time_s[patient] = elapsed_s
+            elif self.owner[patient] >= 0 and (
+                not outdoors[patient] or not supported_height[patient]
+            ):
+                self.evacuation_time_s[patient] = np.inf
