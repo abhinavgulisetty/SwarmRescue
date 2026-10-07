@@ -88,5 +88,82 @@ frozen before opening the evaluation set. Timing confidence intervals resample
 seed clusters so six families from a seed are not treated as independent
 worlds. They measure this machine and workload distribution, not all hardware.
 
-Research status and measured results will be recorded after the development,
-frozen evaluation, live firmware and physical regression checks complete.
+## Frozen solver results
+
+All 144 candidate solves across 24 fresh evaluation seeds and six graph families
+converged to the same reference integer field. The final development comparison
+also passes all 72 models. Full timing samples, input fingerprints and failure
+records are preserved in [compressed evaluation data](benchmarks/solver-evaluation.json.gz),
+[development data](benchmarks/solver-development.json.gz), and the
+[summary receipt](benchmarks/solver-summary.json).
+
+| Matched baseline | Kernel geometric-mean speedup | Full-solve geometric-mean speedup | Full-solve 95% CI | Faster full solves |
+| --- | ---: | ---: | --- | ---: |
+| Compiled Jacobi | 5.62x | 3.47x | [3.23, 3.73] | 141/144 |
+| Compiled natural-order Gauss–Seidel | 3.41x | 2.42x | [2.27, 2.58] | 100/144 |
+
+The primary speed metric includes quantization and arena allocation. Kernel
+timing includes graph preprocessing. Both primary baselines converge on all
+models. The chart shows family-level regressions rather than hiding them:
+
+![Frozen solver comparison](benchmarks/solver-speedups.png)
+
+Sticky-loop problems improve by 19.76x against Jacobi and 19.00x against
+Gauss–Seidel in full-solve timings. Room graphs and dense graphs average 0.95x
+and 0.96x against Gauss–Seidel: the adaptive solver is about 4–5% slower there.
+Its worst individual full-solve ratio against Gauss–Seidel is 0.678x.
+This is an average efficiency win on the declared distribution, not dominance
+on every case. The original learned NCA hypothesis remains a separate result.
+
+Both residual-priority baselines exhaust their applied-update caps on 13
+evaluation models. Their timing ratios use 131 successful pairs and must not
+be reported as an all-model comparison. Failures, update counts, memory use and
+individual timing samples stay in the archived reports.
+
+The report's C source hash is
+`93a489022c4558172d6b105da7a6704eeb10fc7a2b7dc9f53f365027b3e1c5b7`.
+The frozen implementation is committed in `579127c`. Subsequent live-arena
+fallback selection uses the already tested Gauss–Seidel schedule when bound
+scratch cannot fit; the C candidate and frozen timings remain unchanged.
+
+To regenerate the PNG and SVG from the saved measurements:
+
+```bash
+MPLCONFIGDIR=/tmp/ember-mpl .venv/bin/python docs/benchmarks/render_results.py
+```
+
+## Production interfaces
+
+`RobotState.plan(model, native=True)` selects the adaptive C solver when its
+scratch fits the robot's arena. It checks capacity before replacing old policy
+buffers and otherwise uses exact compiled Gauss–Seidel, which needs the same
+scratch space as legacy Jacobi. The solver benchmark measures the explicit
+C `auto` strategy; it does not predict the schedule of every memory-constrained
+live robot request. Direct
+`solve_native_log_q16(model)` retains Jacobi defaults and capped-run compatibility;
+pass `strategy="auto"` to select acceleration explicitly.
+
+The live firmware service retains command 1's legacy Jacobi protocol and adds
+command 3 with an explicit strategy. The mission CLI selects `auto` for newly
+built firmware. `--firmware-strategy jacobi` supports older images. Images must
+advertise a requested accelerated strategy in their build manifest. Invalid
+commands, CRC failures and capacity violations reject the request; transport
+failures never substitute a host-computed answer.
+
+The service retains its 2,048-state / 8,192-edge capacities and 16 KiB stack.
+ARM conformance covers a maximum-capacity model, sticky cyclic grids, repeated
+models and invalid requests. The installer also exercises an actual adaptive
+self-loop solve through QEMU UART before declaring the deployment ready.
+This is kernel-service deployment; the rest of the robot brain runs on the host.
+
+To reproduce the solver comparison from a fixed source checkout:
+
+```bash
+.venv/bin/python -m swarmrescue.cli solver-benchmark --split development --output outputs/algorithm-research/development.json
+.venv/bin/python -m swarmrescue.cli solver-benchmark --split evaluation --output outputs/algorithm-research/evaluation.json
+```
+
+The second command refuses source or protocol-input mismatches before generating
+evaluation models. Once this evaluation has been opened, further algorithm
+selection requires a new protocol and a fresh evaluation set. The recorded
+evaluation is evidence for the frozen algorithm, rather than data for retuning it.
