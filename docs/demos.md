@@ -122,3 +122,26 @@ All 723 tests pass, including physical tracking, collision clearance, bounded
 wheel changes, replanning continuity and the wheel orientation regression.
 The updated bundle and measured comparisons are recorded in
 [motion-validation.json](motion-validation.json).
+
+The 6.3 MB `outputs/cases-smooth/ember-smooth-demos.zip` contains the four updated
+clips, player, storyboards, traces and a before/after comparison. The comparison
+retimes the earlier accelerated video to normal simulated time; it duplicates
+older frames for alignment and adds no optical interpolation. The measured
+comparison combines the wheel-geometry correction, controller, clearance and
+physics timestep changes.
+
+The new full-building reference is
+`outputs/cases-smooth/full-mission/compact/seed42_end_to_end.mp4`: 1920 × 1080,
+30 fps, nominal normal playback, 83.8 seconds including the final hold. It again
+verifies 8/8 evacuations, with the previous eight physical/radio metric arrays
+unchanged. Generate it with:
+
+```bash
+.venv/bin/python -m swarmrescue.cli rescue --render --height 778 \
+  --fps 30 --speed 1 --out outputs/cases-smooth/full-mission \
+  --report outputs/cases-smooth/full-mission.json
+```
+
+The full-building clip is separate from the focused ZIP. All six videos fully
+decode without errors. The extracted ZIP's four selections and measured event
+seeking pass in a fresh browser session.
