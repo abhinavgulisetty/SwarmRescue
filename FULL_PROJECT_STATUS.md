@@ -4,7 +4,7 @@
 **Latest acceptance audit:** 2026-10-07
 **Historical weighted checkpoint:** **76%**
 **Previous checkpoint target:** 75%
-**Current status:** **0.3.1 rescue simulation workflow and local deployment complete; see [verified release](docs/rescue.md). Original scientific/hardware claims remain separate in the [research ledger](COMPLETION_GATES.md).**
+**Current status:** **0.4.0 rescue simulation workflow and local hybrid deployment complete; see [optimized release](docs/optimized-release.md) and [frozen solver evidence](docs/solver-research.md). All 742 tests pass. Native and live-ARM runs preserve 8/8 rescues with maximum routing passes reduced from 789 to 390. Original scientific/hardware claims remain separate in the [research ledger](COMPLETION_GATES.md).**
 
 This is the controlling completion report. `CHECKPOINT_75.md` measures readiness of
 the academic review package; it is not a claim that 75% of the research system is

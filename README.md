@@ -3,15 +3,15 @@
 **E**dge-native **M**essage-passing for **B**ellman-**E**gress **R**outing.
 
 SwarmRescue is a working simulation and firmware-kernel research prototype. Version
-0.3.1 installs as a standalone package and supports a complete eight-robot physical MuJoCo
+0.4.0 installs as a standalone package and supports a complete eight-robot physical MuJoCo
 rescue mission with independent receiver beliefs, lossy radio, range-factor localization,
 geometry-triggered replanning and live Cortex-M4 integer routing for two robots.
 Host code still handles sensors, localization, assignment and fine geometry.
 The deployed workflow finds survivor beacons, establishes local contact, and moves
-physical survivor proxies into outdoor safe zones. All 708 tests pass; the
+physical survivor proxies into outdoor safe zones. All 742 tests pass; the
 multi-building physics grid and native/ARM verification pass. Human physiology and hardware performance are not calibrated.
 
-[Current rescue release](docs/rescue.md), [earlier deployment instructions](docs/deployment.md), [research acceptance ledger](COMPLETION_GATES.md),
+[Current optimized release](docs/optimized-release.md), [rescue model and contract](docs/rescue.md), [earlier deployment instructions](docs/deployment.md), [research acceptance ledger](COMPLETION_GATES.md),
 [historical evidence](FULL_PROJECT_STATUS.md), and [research proposal](PROPOSAL.md).
 The September completion percentage is historical and does not describe this release.
 
@@ -37,16 +37,16 @@ See [the demo and speaking guide](docs/demos.md) for clips and presentation note
 
 ## Deployed release
 
-The checked local deployment is in `outputs/deployment/rescue/`. Run its eight-robot mission:
+The checked local deployment is in `outputs/deployment/optimized/`. Run its eight-robot mission:
 
 ```bash
-outputs/deployment/rescue/run-mission
+outputs/deployment/optimized/run-mission
 ```
 
 The launcher runs the full search/contact/evacuation preset in an isolated installed
 environment with two Cortex-M4 QEMU workers.
 It records a JSON acceptance report and the installed sources used for that run.
-Build/install commands and model assumptions are in [the rescue guide](docs/rescue.md).
+Build/install commands and measured solver results are in [the optimized release guide](docs/optimized-release.md).
 No physical board was flashed and no remote deployment or Git push was performed.
 
 ## Research contributions and current evidence
@@ -57,6 +57,15 @@ No physical board was flashed and no remote deployment or Git push was performed
 | **C2: safeguarded learned acceleration** | The int8 proposer and global safeguard have regression tests. The historical roughly 1x result fails the proposed 2x threshold; deployed int8 acceleration is not established. |
 | **C3: adjoint/VoI communication** | Scheduler and procedural comparisons exist. Fresh frozen physical comparisons at matched budgets and receiver information gain remain open. |
 | **C4: implicit handling of failures** | Stale precision, radio loss and provenance are modeled. Whole physical failure grids and sealed validation remain open. |
+
+The production planner now combines exact shortest-path bounds, ordered updates,
+and integer self-loop solving. A frozen 144-model comparison measures **3.47x**
+faster full routing solves than compiled Jacobi and **2.42x** than Gauss–Seidel,
+with identical converged fields. Some small and dense cases are slower than
+Gauss–Seidel; this is an average gain on the declared solver distribution.
+The native and live-ARM rescue runs retain the prior physical outcomes while
+reducing maximum reported routing passes from 789 to 390. See the
+[methods, confidence intervals and complete measurements](docs/solver-research.md).
 
 The building and rubble come from procedural MuJoCo collapse simulation; live
 thermal damage releases structural welds. Regional distributed missions rerasterize
