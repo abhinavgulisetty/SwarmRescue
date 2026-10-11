@@ -78,10 +78,14 @@ def main():
         "Preregistered confirmation: 240 maps, 720 cases, 3 processes, one host"
     )
     figure.savefig(HERE / "confirmation.svg", metadata={"Date": None})
+    svg = HERE / "confirmation.svg"
+    svg.write_text(
+        "\n".join(line.rstrip() for line in svg.read_text().splitlines()) + "\n"
+    )
     figure.savefig(HERE / "confirmation.png", dpi=180)
     plt.close(figure)
     with (HERE / "confirmation-table.csv").open("w", newline="") as output:
-        writer = csv.writer(output)
+        writer = csv.writer(output, lineterminator="\n")
         writer.writerow(
             [
                 "method",
