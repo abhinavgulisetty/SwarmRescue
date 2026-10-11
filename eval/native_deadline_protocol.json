@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "frozen": true,
+  "client_date": "2026-10-11",
+  "frozen_at_utc": "2026-10-11T14:06:07.117538+00:00",
+  "source_commit": "869f7e73fedef967bff295f7dda30bf862f3fcd0",
+  "candidate": "native_exact",
+  "selection_rule": "FIFO for verified unit clocks; consistent truncated certificates; full DP at N*(D+1)<=8192, else suffix-pruned lazy A* under caller label quota followed by full/corridor DP if it fits; honest Python memory fallback.",
+  "scope": "Positive Q16 estimated cost under one hard discrete traversal resource; host runtime only.",
+  "development_seeds": [
+    72000,
+    72001,
+    72002,
+    72003
+  ],
+  "evaluation_seeds": [
+    82000,
+    82001,
+    82002,
+    82003,
+    82004,
+    82005,
+    82006,
+    82007,
+    82008,
+    82009,
+    82010,
+    82011
+  ],
+  "families": [
+    "grid",
+    "rooms",
+    "dense",
+    "deadends",
+    "tradeoff",
+    "large_grid"
+  ],
+  "methods": [
+    "pareto",
+    "astar",
+    "lazy_astar",
+    "dual_astar",
+    "bounded_dp",
+    "window_dp",
+    "hybrid_exact",
+    "native_astar",
+    "native_full_dp",
+    "native_window_dp",
+    "native_dp",
+    "native_exact",
+    "milp"
+  ],
+  "label_caps": [
+    32,
+    128,
+    4096
+  ],
+  "numeric_arena_bytes": 204800,
+  "samples_per_case": 5,
+  "compiler_flags": [
+    "-std=c99",
+    "-O3",
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+    "-shared",
+    "-fPIC"
+  ],
+  "compiler": "cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
+  "timing": "Five cold full API samples with preprocessing/quantization/allocation; compilation and import warmup excluded for all methods. Seeded randomized method order. HiGHS 3s limit.",
+  "confidence_interval": "3000 whole-map-seed bootstrap draws, RNG802913; mutually proven optimal feasible pairs only.",
+  "source_files_sha256": {
+    "eval/native_deadline_reference.py": "0320e1007dc8eded9af5a4eee17e52d6224b806efd8fc708b516c498e5f74469",
+    "eval/reference_constrained.py": "c801a625e150a14328785ce09a16ed3258c47112b0ee119eeb57ae3f3743e3d4",
+    "firmware/deadline_exact.c": "db8f0d4ae5afc185c19819b27d8c308cc4c5a55089f6674d658ace5434c39f9c",
+    "firmware/deadline_exact.h": "3028c407c28bda3648f124a0e0edf5581365717c5b5b218025bf63327dadd2aa",
+    "mcu/native_deadline.py": "dcb348ac5c7363e3abaead99d0d23096c83d6d827ef7f6cda49b63b05000cf76",
+    "mcu/__init__.py": "fab65254ec432ef8f8b9589369e9e76f782083262e7e5da81de75968fa935815",
+    "ember/routing/deadline.py": "5e29bc4a29e5af1074965af40fc183a4527b6c187b10b5d3c8137ee52597bddf",
+    "ember/routing/constrained.py": "9d597013f81121d032efe33b0a2ebda1005f41a09438ac55b57e37b65f529647",
+    "eval/native_deadline_benchmark.py": "2f7a3bea5432a7a136ac3f578fd0e8959f078972fc5718997a411c00fc508f27",
+    "eval/constrained_benchmark.py": "aee7099b817d6454e07dd5784f00840fe17de746096cc25218a309de51e0407b",
+    "eval/procedural.py": "4820c6491fabc579fd71f78ed6003440600f887a941aac1b07149d1fd135b2a5",
+    "cascade/floorplan.py": "0394235907d898e63b93103931ba421510dc34192021c6f92c4d52e7ed05f16c",
+    "cascade/params.py": "0f9bdb044bad9d38ca46d85b92cee27f2b4393f491cecc28e4affd2b1d305b24",
+    "cascade/rng.py": "5599f313f17ae9594d488a8f252812a66e00171db3bc51a97ec4de90c3f2e7db",
+    "cascade/extract.py": "64c04a4053b4cd2f1faaa05555a379acb78e0f7c03f9444b7314990bc87bd7c3"
+  },
+  "reference": {
+    "upstream": "https://bitbucket.org/s-ahmadi/multiobj",
+    "revision": "4098543d0c5d78afc977017b5abf6054671a8c43",
+    "binary_sha256": "feb3056ffd5ac3c91898e1f6a9c724262c5ba06168f130630ee4b994825c26d4",
+    "configuration": "Default make main, DIM2 int32, -O3 bucket, no tie breaking or path support; explicit resource budget; one-unit terminal translation.",
+    "timing_scope": "Author initialization+search excludes parsing/IPC; candidate full API includes preprocessing."
+  }
+}
