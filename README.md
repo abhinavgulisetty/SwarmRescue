@@ -3,15 +3,15 @@
 **E**dge-native **M**essage-passing for **B**ellman-**E**gress **R**outing.
 
 SwarmRescue is a working simulation and firmware-kernel research prototype. Version
-0.5.0 installs as a standalone package and supports a complete eight-robot physical MuJoCo
+0.6.0 installs as a standalone package and supports a complete eight-robot physical MuJoCo
 rescue mission with independent receiver beliefs, lossy radio, range-factor localization,
 geometry-triggered replanning and live Cortex-M4 integer routing for two robots.
 Host code still handles sensors, localization, assignment and fine geometry.
 The deployed workflow finds survivor beacons, establishes local contact, and moves
-physical survivor proxies into outdoor safe zones. All 758 tests pass (three skips); native/ARM physical missions and independent
+physical survivor proxies into outdoor safe zones. All 779 tests pass (three skips); native/ARM physical missions and independent
 verification pass. Human physiology and hardware performance are not calibrated.
 
-[Current deadline routing release](docs/deadline-release.md), [0.4.0 Bellman accelerator](docs/optimized-release.md), [rescue model and contract](docs/rescue.md), [earlier deployment instructions](docs/deployment.md), [research acceptance ledger](COMPLETION_GATES.md),
+[Current faster routing release](docs/native-deadline-release.md), [0.5.0 deadline release](docs/deadline-release.md), [0.4.0 Bellman accelerator](docs/optimized-release.md), [rescue model and contract](docs/rescue.md), [earlier deployment instructions](docs/deployment.md), [research acceptance ledger](COMPLETION_GATES.md),
 [historical evidence](FULL_PROJECT_STATUS.md), and [research proposal](PROPOSAL.md).
 The September completion percentage is historical and does not describe this release.
 
@@ -46,16 +46,16 @@ meeting the deadline. Pause, restart and change the deadline to explain why:
 
 ## Deployed release
 
-The checked local deployment is in `outputs/deployment/deadline/`. Run its eight-robot mission:
+The checked local deployment is in `outputs/deployment/fast/`. Run its eight-robot mission:
 
 ```bash
-outputs/deployment/deadline/run-mission
+outputs/deployment/fast/run-mission
 ```
 
 The launcher runs the full search/contact/evacuation preset in an isolated installed
 environment with two Cortex-M4 QEMU workers.
 It records a JSON acceptance report and the installed sources used for that run.
-Build/install commands and measured solver results are in [the deadline release guide](docs/deadline-release.md).
+Build/install commands and measured solver results are in [the faster release guide](docs/native-deadline-release.md).
 No physical board was flashed and no remote deployment or Git push was performed.
 
 ## Research contributions and current evidence
@@ -67,16 +67,13 @@ No physical board was flashed and no remote deployment or Git push was performed
 | **C3: adjoint/VoI communication** | Scheduler and procedural comparisons exist. Fresh frozen physical comparisons at matched budgets and receiver information gain remain open. |
 | **C4: implicit handling of failures** | Stale precision, radio loss and provenance are modeled. Whole physical failure grids and sealed validation remain open. |
 
-The deadline safeguard now uses an exact compressed time corridor with
-bounded-DP and dual-A* fallback. A frozen 144-case comparison proves all 126
-feasible optima, compared with 55 for the previous bounded search, and measures
-14.33x faster exact solves than native HiGHS. The actual published NWRCA*
-implementation is independently correct on all 48 distinct maps; its documented
-default native setup/search is about 20.16x slower than the hybrid's full API
-call on these integer-cost maps. Ordinary A* is about 5% faster on mutually
-exact pairs. These are scoped routing results, with no general survival or
-all-methods superiority claim. Full measurements and boundaries are in
-[the deadline research release](docs/deadline-release.md).
+The compiled deadline safeguard is faster on average than every baseline in a
+fresh frozen 216-case comparison: **5.90x versus Python A***, **1.044x versus
+compiled lazy A*** (95% CI [1.015, 1.076]), and **82.68x versus native HiGHS** on
+mutually proven-optimal pairs. It proves 196/198 feasible optima and returns the
+same objectives as the previous hybrid in every case. The two low-memory
+fallbacks are retained and documented. Per-input and all-known-method superiority
+is not claimed. See [complete measurements and limits](docs/native-deadline-release.md).
 
 The production planner now combines exact shortest-path bounds, ordered updates,
 and integer self-loop solving. A frozen 144-model comparison measures **3.47x**

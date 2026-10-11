@@ -1,0 +1,96 @@
+{
+  "version": "0.6.0",
+  "client_date": "2026-10-11",
+  "runtime_source_commit": "ca8aa3c",
+  "wheel_sha256": "a650a290dad40d31e6d83eb672fa589766d59eb1a696a5e41b9c83dac2554a9a",
+  "source_fingerprint": "90d1ee44530d1decf543b36166ec11cb65ff8548524bf73bd22fbb0324400389",
+  "firmware_image_sha256": "098a65c455f7c9d11b32b0ecb792d3d4f720f3fbfa1fca4a4fc944b9511d8222",
+  "tests": {
+    "passed": 779,
+    "skipped": 3,
+    "random_oracle_comparisons": 2200,
+    "unit_clock_oracle_comparisons": 500,
+    "capped_search_checks": 480,
+    "asan_ubsan_passed": true
+  },
+  "missions": [
+    {
+      "label": "native",
+      "returncode": 0,
+      "wall_s": 221.18393695299892,
+      "command": [
+        "/home/zypher/Music/pjt1/SwarmRescue/outputs/deployment/fast/run-mission",
+        "--firmware-robots",
+        "0",
+        "--report",
+        "/home/zypher/Music/pjt1/SwarmRescue/outputs/deployment/fast/validation-final/native.json",
+        "--out",
+        "/home/zypher/Music/pjt1/SwarmRescue/outputs/deployment/fast/validation-final/native"
+      ],
+      "physical_fields_match_050": true,
+      "source_fingerprint": "90d1ee44530d1decf543b36166ec11cb65ff8548524bf73bd22fbb0324400389",
+      "firmware_requests": 0,
+      "report_sha256": "67dc7af20596ef3cf06c79794ad9744ad5409965ba626a8401177f3164ab91c7"
+    },
+    {
+      "label": "arm",
+      "returncode": 0,
+      "wall_s": 242.06873083499522,
+      "command": [
+        "/home/zypher/Music/pjt1/SwarmRescue/outputs/deployment/fast/run-mission",
+        "--firmware-robots",
+        "2",
+        "--report",
+        "/home/zypher/Music/pjt1/SwarmRescue/outputs/deployment/fast/validation-final/arm.json",
+        "--out",
+        "/home/zypher/Music/pjt1/SwarmRescue/outputs/deployment/fast/validation-final/arm"
+      ],
+      "physical_fields_match_050": true,
+      "source_fingerprint": "90d1ee44530d1decf543b36166ec11cb65ff8548524bf73bd22fbb0324400389",
+      "firmware_requests": 25,
+      "report_sha256": "035bdad47ad136688c7d8bfe01dae6d6a81204cdabcc3fdedf295d4efd63a67d"
+    }
+  ],
+  "focused_cases_accepted": 4,
+  "deadline_demo_verified_budgets": 21,
+  "evaluation": {
+    "cases": 216,
+    "distinct_maps": 72,
+    "feasible": 198,
+    "impossible": 18,
+    "candidate_correct": 216,
+    "candidate_proven_optimal": 196,
+    "candidate_mean_objective_gap_fraction": 0.0051880234428462926,
+    "previous_hybrid_objectives_match_in_every_case": true,
+    "compiled_lazy_astar_speed_ratio": 1.04427842947569,
+    "compiled_lazy_astar_95ci": [
+      1.0150251585581556,
+      1.0760610189458932
+    ],
+    "python_astar_speed_ratio": 5.901287258158428,
+    "highs_speed_ratio": 82.68448677556555,
+    "numeric_arena_limit": 204800,
+    "numeric_arena_peak": 204788,
+    "bounded_cases": [
+      {
+        "seed": 82003,
+        "family": "large_grid",
+        "label_capacity": 32,
+        "gap_fraction": 0.5136143208417829
+      },
+      {
+        "seed": 82003,
+        "family": "large_grid",
+        "label_capacity": 128,
+        "gap_fraction": 0.5136143208417829
+      }
+    ]
+  },
+  "limitations": [
+    "Average wins against tested baselines; not every method or input.",
+    "Static estimated objective and discrete traversal clock.",
+    "Numeric scratch excludes host input/output graph arrays and third-party RAM.",
+    "New deadline kernel host-side; unchanged Cortex-M4 Bellman service.",
+    "No physical-board flashing, remote publication or git push."
+  ]
+}

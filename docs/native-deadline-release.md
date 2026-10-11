@@ -92,3 +92,20 @@ Host input/output arrays, Python objects and third-party process RAM are outside
 that accounting. The new deadline kernel executes on the host; the existing
 Cortex-M4 Bellman service is unchanged. These results measure static estimated
 route cost and host latency, not calibrated survival or hardware cycles.
+
+
+## Installed rescue verification
+
+Both supervised seed-42 eight-robot missions exit with status 0 and evacuate
+8/8 survivors. The live Cortex-M4 run makes 25 actual requests for two robots.
+Contact/evacuation times, final positions, travel distances, estimated exposure
+proxies and radio bytes match 0.5.0 exactly. The final independent report/source
+archive verifier accepts both runs, and all four focused installed cases pass.
+The installed solver files match every sealed evaluation hash. These physical
+runs are regression checks, not evidence of improved survival or mission time.
+
+The wheel and portable evidence bundle are under `outputs/releases/0.6.0/`.
+The source, unchanged firmware, exact dependency lock, complete raw comparisons,
+scientific figure, source archives and accepted reports are preserved. Older
+0.5.0 and 0.4.0 deployments remain available. The
+[release receipt](releases/0.6.0.json) records exact identities and process status.
