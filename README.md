@@ -11,7 +11,7 @@ The deployed workflow finds survivor beacons, establishes local contact, and mov
 physical survivor proxies into outdoor safe zones. All 779 tests pass (three skips); native/ARM physical missions and independent
 verification pass. Human physiology and hardware performance are not calibrated.
 
-[Current faster routing release](docs/native-deadline-release.md), [0.5.0 deadline release](docs/deadline-release.md), [0.4.0 Bellman accelerator](docs/optimized-release.md), [rescue model and contract](docs/rescue.md), [earlier deployment instructions](docs/deployment.md), [research acceptance ledger](COMPLETION_GATES.md),
+[Paper draft and checked evidence](docs/paper/README.md), [current faster routing release](docs/native-deadline-release.md), [0.5.0 deadline release](docs/deadline-release.md), [0.4.0 Bellman accelerator](docs/optimized-release.md), [rescue model and contract](docs/rescue.md), [earlier deployment instructions](docs/deployment.md), [research acceptance ledger](COMPLETION_GATES.md),
 [historical evidence](FULL_PROJECT_STATUS.md), and [research proposal](PROPOSAL.md).
 The September completion percentage is historical and does not describe this release.
 
@@ -67,13 +67,22 @@ No physical board was flashed and no remote deployment or Git push was performed
 | **C3: adjoint/VoI communication** | Scheduler and procedural comparisons exist. Fresh frozen physical comparisons at matched budgets and receiver information gain remain open. |
 | **C4: implicit handling of failures** | Stale precision, radio loss and provenance are modeled. Whole physical failure grids and sealed validation remain open. |
 
-The compiled deadline safeguard is faster on average than every baseline in a
-fresh frozen 216-case comparison: **5.90x versus Python A***, **1.044x versus
+The compiled deadline safeguard is faster on average than every baseline in the
+original frozen 216-case comparison: **5.90x versus Python A***, **1.044x versus
 compiled lazy A*** (95% CI [1.015, 1.076]), and **82.68x versus native HiGHS** on
 mutually proven-optimal pairs. It proves 196/198 feasible optima and returns the
 same objectives as the previous hybrid in every case. The two low-memory
 fallbacks are retained and documented. Per-input and all-known-method superiority
 is not claimed. See [complete measurements and limits](docs/native-deadline-release.md).
+
+A subsequent preregistered 240-map replication checks **105,840 repeats** across
+three process sessions. It does **not** confirm a compiled-A* speed advantage:
+the ratio is **1.011x**, 95% interval **[0.998, 1.023]**. It does show greater exact
+coverage under the same numeric arena: **606/612** feasible optima versus A*'s
+**517/612**, and **6.707x** faster calls than the previous Python hybrid at equal
+exact coverage. The [paper evidence package](docs/paper/README.md) provides
+mathematical arguments, independent instance certificates, 338,044 bounded
+exhaustive checks, full raw repeats, sensitivity analyses and explicit claim limits.
 
 The production planner now combines exact shortest-path bounds, ordered updates,
 and integer self-loop solving. A frozen 144-model comparison measures **3.47x**

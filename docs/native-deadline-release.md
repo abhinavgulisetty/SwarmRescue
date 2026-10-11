@@ -1,5 +1,12 @@
 # Faster exact deadline routing — 0.6.0
 
+**Subsequent research replication:** the original measurements below are retained,
+but a fresh preregistered 240-map study does not confirm a reliable compiled-A*
+speed advantage: ratio 1.011×, approximate 95% interval [0.998,1.023]. It proves
+606/612 feasible optima versus compiled A*'s 517/612 under the common numeric arena,
+and checks all 105,840 repeats. Read the [paper and claim ledger](paper/README.md)
+alongside this original release report before making publication claims.
+
 The production deadline safeguard now uses compiled exact certificates and
 adaptive DP/A* execution. Feasible existing proposals remain stable. The candidate
 uses unit-clock FIFO specialization, consistent truncated certificate fields,

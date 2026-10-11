@@ -1,0 +1,436 @@
+{
+  "schema_version": 1,
+  "protocol_sha256": "7d621f4a95f1b33f2cfc04c0ebf3d8fe7b89e7374a26a58dd0b567df0ab35094",
+  "raw_sha256": {
+    "docs/paper/confirmation-process-0.json.gz": "1ecb39285330716edd7ce715d7c2c096a04f92d174a8ca435ed0794d82aabc79",
+    "docs/paper/confirmation-process-1.json.gz": "ec94bf700eb386541f56789dc16a60df0d57bb01210eca6ff4f97655cf2d28b5",
+    "docs/paper/confirmation-process-2.json.gz": "7943cc00b3bd29b0fed22dc2e6c488ebf94eb2b1b635ae0dc9c720b1914ea04f"
+  },
+  "cases": 720,
+  "distinct_maps": 240,
+  "processes": 3,
+  "verified_samples": 105840,
+  "verified_bellman_states_with_process_repetition": 12103650,
+  "statistics": {
+    "native_astar": {
+      "exact_pairs": 517,
+      "informative_seed_blocks": 34,
+      "candidate_geomean_speedup": 1.0106596667353107,
+      "process_geomean_speedups": [
+        1.0121119545198138,
+        1.0054847887610898,
+        1.0144035104174787
+      ],
+      "process_and_seed_bootstrap_95ci": [
+        0.9981693621126618,
+        1.0229547059074162
+      ],
+      "bonferroni_simultaneous_95ci": [
+        0.9941385806350111,
+        1.0272167601062778
+      ],
+      "candidate_faster_pairs": 353,
+      "candidate_slower_pairs": 164
+    },
+    "native_full_dp": {
+      "exact_pairs": 534,
+      "informative_seed_blocks": 34,
+      "candidate_geomean_speedup": 1.0306707955072372,
+      "process_geomean_speedups": [
+        1.033746790982498,
+        1.026436151628064,
+        1.0318434146362956
+      ],
+      "process_and_seed_bootstrap_95ci": [
+        1.0249817874527418,
+        1.0363965486824807
+      ],
+      "bonferroni_simultaneous_95ci": [
+        1.022444073857269,
+        1.0384151829976362
+      ],
+      "candidate_faster_pairs": 377,
+      "candidate_slower_pairs": 157
+    },
+    "native_window_dp": {
+      "exact_pairs": 594,
+      "informative_seed_blocks": 34,
+      "candidate_geomean_speedup": 1.0328171416282845,
+      "process_geomean_speedups": [
+        1.0362141542657977,
+        1.028543881947216,
+        1.033708211856148
+      ],
+      "process_and_seed_bootstrap_95ci": [
+        1.0237427828967505,
+        1.0412997178463648
+      ],
+      "bonferroni_simultaneous_95ci": [
+        1.0198811010637694,
+        1.0440256966124035
+      ],
+      "candidate_faster_pairs": 397,
+      "candidate_slower_pairs": 197
+    },
+    "native_dp": {
+      "exact_pairs": 606,
+      "informative_seed_blocks": 34,
+      "candidate_geomean_speedup": 1.0968978391347635,
+      "process_geomean_speedups": [
+        1.0974085225196615,
+        1.09003561282936,
+        1.1032896067970563
+      ],
+      "process_and_seed_bootstrap_95ci": [
+        1.065923336661843,
+        1.135381000044951
+      ],
+      "bonferroni_simultaneous_95ci": [
+        1.0589293513675087,
+        1.1513349943063882
+      ],
+      "candidate_faster_pairs": 452,
+      "candidate_slower_pairs": 154
+    },
+    "hybrid_exact": {
+      "exact_pairs": 606,
+      "informative_seed_blocks": 34,
+      "candidate_geomean_speedup": 6.706904041200418,
+      "process_geomean_speedups": [
+        6.713573306592251,
+        6.696701098223787,
+        6.710449737960777
+      ],
+      "process_and_seed_bootstrap_95ci": [
+        6.3275454528218855,
+        7.101298729238426
+      ],
+      "bonferroni_simultaneous_95ci": [
+        6.202571864072942,
+        7.23912276033197
+      ],
+      "candidate_faster_pairs": 602,
+      "candidate_slower_pairs": 4
+    },
+    "astar": {
+      "exact_pairs": 532,
+      "informative_seed_blocks": 34,
+      "candidate_geomean_speedup": 5.673343307545966,
+      "process_geomean_speedups": [
+        5.691447421845593,
+        5.641989744389517,
+        5.68672429400572
+      ],
+      "process_and_seed_bootstrap_95ci": [
+        5.464779132455081,
+        5.897220139656702
+      ],
+      "bonferroni_simultaneous_95ci": [
+        5.396062732620575,
+        5.980349496245111
+      ],
+      "candidate_faster_pairs": 530,
+      "candidate_slower_pairs": 2
+    }
+  },
+  "quality": {
+    "native_exact": {
+      "feasible_cases": 612,
+      "all_repeats_feasible": 612,
+      "all_repeats_optimal": 606,
+      "worst_returned_gap_fraction": 0.3480371877649613
+    },
+    "native_astar": {
+      "feasible_cases": 612,
+      "all_repeats_feasible": 612,
+      "all_repeats_optimal": 517,
+      "worst_returned_gap_fraction": 4.649630484177886
+    },
+    "native_full_dp": {
+      "feasible_cases": 612,
+      "all_repeats_feasible": 612,
+      "all_repeats_optimal": 534,
+      "worst_returned_gap_fraction": 4.649630484177886
+    },
+    "native_window_dp": {
+      "feasible_cases": 612,
+      "all_repeats_feasible": 612,
+      "all_repeats_optimal": 594,
+      "worst_returned_gap_fraction": 2.2189251661289853
+    },
+    "native_dp": {
+      "feasible_cases": 612,
+      "all_repeats_feasible": 612,
+      "all_repeats_optimal": 606,
+      "worst_returned_gap_fraction": 0.3480371877649613
+    },
+    "hybrid_exact": {
+      "feasible_cases": 612,
+      "all_repeats_feasible": 612,
+      "all_repeats_optimal": 606,
+      "worst_returned_gap_fraction": 0.3480371877649613
+    },
+    "astar": {
+      "feasible_cases": 612,
+      "all_repeats_feasible": 612,
+      "all_repeats_optimal": 532,
+      "worst_returned_gap_fraction": 4.649630484177886
+    }
+  },
+  "primary_endpoint": {
+    "comparator": "native_astar",
+    "confirmed_by_preregistered_ci_rule": false
+  },
+  "common_support_pairs": 492,
+  "common_support_statistics": {
+    "native_astar": {
+      "exact_pairs": 492,
+      "informative_seed_blocks": 34,
+      "candidate_geomean_speedup": 1.0035932233882798,
+      "process_geomean_speedups": [
+        1.0042235037438547,
+        0.9994371457771092,
+        1.0071340796109127
+      ],
+      "process_and_seed_bootstrap_95ci": [
+        0.9897470580130237,
+        1.0171933105282303
+      ],
+      "bonferroni_simultaneous_95ci": [
+        0.9850097242587709,
+        1.0214193172714294
+      ],
+      "candidate_faster_pairs": 329,
+      "candidate_slower_pairs": 163
+    },
+    "native_full_dp": {
+      "exact_pairs": 492,
+      "informative_seed_blocks": 34,
+      "candidate_geomean_speedup": 1.0338881910330568,
+      "process_geomean_speedups": [
+        1.0372589484213492,
+        1.029831970041281,
+        1.034587351506303
+      ],
+      "process_and_seed_bootstrap_95ci": [
+        1.0283108326583437,
+        1.0395588102641844
+      ],
+      "bonferroni_simultaneous_95ci": [
+        1.0257473738702632,
+        1.041470288850914
+      ],
+      "candidate_faster_pairs": 360,
+      "candidate_slower_pairs": 132
+    },
+    "native_window_dp": {
+      "exact_pairs": 492,
+      "informative_seed_blocks": 34,
+      "candidate_geomean_speedup": 1.0149108739354498,
+      "process_geomean_speedups": [
+        1.0182682983413422,
+        1.0111290801307624,
+        1.0153479420188563
+      ],
+      "process_and_seed_bootstrap_95ci": [
+        1.004394394106793,
+        1.0250623025705643
+      ],
+      "bonferroni_simultaneous_95ci": [
+        1.0010255386049445,
+        1.028597035388223
+      ],
+      "candidate_faster_pairs": 324,
+      "candidate_slower_pairs": 168
+    },
+    "native_dp": {
+      "exact_pairs": 492,
+      "informative_seed_blocks": 34,
+      "candidate_geomean_speedup": 1.0349616122589334,
+      "process_geomean_speedups": [
+        1.0352317385215872,
+        1.0290447017082864,
+        1.040640935917309
+      ],
+      "process_and_seed_bootstrap_95ci": [
+        1.027659677252679,
+        1.0425717740699765
+      ],
+      "bonferroni_simultaneous_95ci": [
+        1.0243045235018693,
+        1.0454963277491212
+      ],
+      "candidate_faster_pairs": 364,
+      "candidate_slower_pairs": 128
+    },
+    "hybrid_exact": {
+      "exact_pairs": 492,
+      "informative_seed_blocks": 34,
+      "candidate_geomean_speedup": 5.676228044143453,
+      "process_geomean_speedups": [
+        5.684526494239607,
+        5.666033637793615,
+        5.678139547762
+      ],
+      "process_and_seed_bootstrap_95ci": [
+        5.479192269949919,
+        5.901590155058545
+      ],
+      "bonferroni_simultaneous_95ci": [
+        5.41907398481212,
+        5.981134746757746
+      ],
+      "candidate_faster_pairs": 492,
+      "candidate_slower_pairs": 0
+    },
+    "astar": {
+      "exact_pairs": 492,
+      "informative_seed_blocks": 34,
+      "candidate_geomean_speedup": 5.314773572014696,
+      "process_geomean_speedups": [
+        5.333067485193454,
+        5.285158669602409,
+        5.3262211022454355
+      ],
+      "process_and_seed_bootstrap_95ci": [
+        5.152221188552181,
+        5.483465021188474
+      ],
+      "bonferroni_simultaneous_95ci": [
+        5.0979037009950705,
+        5.540789201121537
+      ],
+      "candidate_faster_pairs": 492,
+      "candidate_slower_pairs": 0
+    }
+  },
+  "by_family_vs_primary": {
+    "grid": {
+      "exact_pairs": 102,
+      "informative_seed_blocks": 34,
+      "candidate_geomean_speedup": 1.0447480661547501,
+      "process_geomean_speedups": [
+        1.0471363484127585,
+        1.0373987085185927,
+        1.049749773548071
+      ],
+      "process_and_seed_bootstrap_95ci": [
+        1.0316503526284888,
+        1.057945796608002
+      ],
+      "bonferroni_simultaneous_95ci": [
+        1.0264888819766183,
+        1.0626348877764669
+      ],
+      "candidate_faster_pairs": 92,
+      "candidate_slower_pairs": 10
+    },
+    "rooms": {
+      "exact_pairs": 102,
+      "informative_seed_blocks": 34,
+      "candidate_geomean_speedup": 0.8941634147440621,
+      "process_geomean_speedups": [
+        0.8973592218343236,
+        0.887897192921802,
+        0.8972669602374896
+      ],
+      "process_and_seed_bootstrap_95ci": [
+        0.854946111134504,
+        0.9344520575344173
+      ],
+      "bonferroni_simultaneous_95ci": [
+        0.8412270799258605,
+        0.947610940626636
+      ],
+      "candidate_faster_pairs": 33,
+      "candidate_slower_pairs": 69
+    },
+    "dense": {
+      "exact_pairs": 102,
+      "informative_seed_blocks": 34,
+      "candidate_geomean_speedup": 0.9938853772503063,
+      "process_geomean_speedups": [
+        0.9898279012958758,
+        0.9931604932460572,
+        0.9986878721747204
+      ],
+      "process_and_seed_bootstrap_95ci": [
+        0.977784806782359,
+        1.0086261776197256
+      ],
+      "bonferroni_simultaneous_95ci": [
+        0.9716353386248242,
+        1.0132757764908167
+      ],
+      "candidate_faster_pairs": 66,
+      "candidate_slower_pairs": 36
+    },
+    "deadends": {
+      "exact_pairs": 102,
+      "informative_seed_blocks": 34,
+      "candidate_geomean_speedup": 1.0817611265647127,
+      "process_geomean_speedups": [
+        1.0751190913143058,
+        1.084073265711366,
+        1.0861227344185427
+      ],
+      "process_and_seed_bootstrap_95ci": [
+        1.0708368536636435,
+        1.0935473549679646
+      ],
+      "bonferroni_simultaneous_95ci": [
+        1.066527942384058,
+        1.0983068349733311
+      ],
+      "candidate_faster_pairs": 100,
+      "candidate_slower_pairs": 2
+    },
+    "tradeoff": {
+      "exact_pairs": 60,
+      "informative_seed_blocks": 34,
+      "candidate_geomean_speedup": 0.9646017965348478,
+      "process_geomean_speedups": [
+        0.9679921049483167,
+        0.962083180256318,
+        0.9637397277629606
+      ],
+      "process_and_seed_bootstrap_95ci": [
+        0.9474868840787608,
+        0.9803653143419031
+      ],
+      "bonferroni_simultaneous_95ci": [
+        0.9408494084880138,
+        0.9852046407346203
+      ],
+      "candidate_faster_pairs": 15,
+      "candidate_slower_pairs": 45
+    },
+    "large_grid": {
+      "exact_pairs": 49,
+      "informative_seed_blocks": 33,
+      "candidate_geomean_speedup": 1.1582580111410548,
+      "process_geomean_speedups": [
+        1.1816691535312276,
+        1.1301654971646942,
+        1.1635310965375463
+      ],
+      "process_and_seed_bootstrap_95ci": [
+        1.1211856976928514,
+        1.1915207735154372
+      ],
+      "bonferroni_simultaneous_95ci": [
+        1.1043644772085024,
+        1.2033559839280596
+      ],
+      "candidate_faster_pairs": 47,
+      "candidate_slower_pairs": 2
+    }
+  },
+  "limitations": [
+    "One physical host and only three process sessions.",
+    "Bootstrap intervals are approximate; no universal or worst-case speed theorem.",
+    "Exact-pair timing remains conditional on success; report quality and common support.",
+    "No new physical rescue experiment or measured embedded deadline-kernel cycles.",
+    "No per-component ablation; component attribution and novelty are not established."
+  ]
+}
