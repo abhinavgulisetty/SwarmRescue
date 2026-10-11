@@ -19,7 +19,7 @@ COMMANDS = {
     "view": "cascade.view",
     "evaluate": "eval.procedural",
     "solver-benchmark": "eval.solver_benchmark",
-    "deadline-benchmark": "eval.constrained_benchmark",
+    "deadline-benchmark": "eval.native_deadline_benchmark",
     "deadline-demo": "swarmrescue.deadline_demo",
     "range-evaluation": "eval.range_delivery",
     "firmware-replay": "eval.firmware_replay",
@@ -56,7 +56,31 @@ def doctor():
         result = solve_native_log_q16(model, strategy="auto")
         if not result.fixed_point or result.route(0) != (0, 1, 2):
             raise RuntimeError("native integer smoke route failed")
-        return "C kernel compiled and returned the expected route"
+        # Small packaged graph verifies the new compiled exact solver too.
+        from cascade.extract import TraversabilityGraph, VoxelGrid
+        from ember.routing.deadline import deadline_route
+
+        empty = np.zeros((3, 1, 1), bool)
+        graph = TraversabilityGraph(
+            VoxelGrid((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), empty, empty),
+            np.array([[0, 0, 0], [1, 0, 0], [2, 0, 0]]),
+            np.zeros(3),
+            np.array([[0, 1], [1, 2]]),
+            np.ones(2),
+        )
+        route = deadline_route(
+            graph,
+            0,
+            (2,),
+            np.zeros(3),
+            available_steps=3,
+            walking_speed_m_s=1,
+            dt_s=1,
+            strategy="native_exact",
+        )
+        if not route.optimal or route.route != (0, 1, 2):
+            raise RuntimeError("compiled exact deadline smoke route failed")
+        return "C Bellman and exact deadline kernels returned expected routes"
 
     def physics():
         import mujoco

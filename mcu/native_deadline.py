@@ -37,6 +37,7 @@ class _Stats(ctypes.Structure):
                 "states",
                 "runs",
                 "method",
+                "expanded",
             )
         ]
     )
@@ -99,25 +100,20 @@ def native_graph_search(
     storage = arena if arena is not None else MCUArena(200 * 1024)
     source = edges.reshape(-1).astype(np.int64, copy=False)
     target = edges[:, ::-1].reshape(-1).astype(np.int64, copy=False)
-    duration = np.repeat(steps, 2)
-    weight = costs[:, ::-1].reshape(-1)
-
-    def csr(sources, targets):
-        order = np.argsort(sources, kind="stable")
-        counts = np.bincount(sources, minlength=n)
-        if len(source) >= 2**32:
-            raise ValueError("native transition indexing exceeds uint32")
-        rows = np.empty(n + 1, np.uint32)
-        rows[0] = 0
-        np.cumsum(counts, out=rows[1:])
-        return (
-            rows,
-            np.ascontiguousarray(targets[order], dtype=np.uint32),
-            np.ascontiguousarray(duration[order], dtype=np.uint32),
-            np.ascontiguousarray(weight[order], dtype=np.int64),
-        )
-
-    forward, backward = csr(source, target), csr(target, source)
+    if len(source) >= 2**32:
+        raise ValueError("native transition indexing exceeds uint32")
+    order = np.argsort(source, kind="stable")
+    rows = np.empty(n + 1, np.uint32)
+    rows[0] = 0
+    np.cumsum(np.bincount(source, minlength=n), out=rows[1:])
+    targets = np.ascontiguousarray(target[order], dtype=np.uint32)
+    duration = np.ascontiguousarray(np.repeat(steps, 2)[order], dtype=np.uint32)
+    forward_weight = np.ascontiguousarray(costs[:, ::-1].reshape(-1)[order])
+    reverse_weight = np.ascontiguousarray(costs.reshape(-1)[order])
+    # Public graphs have both directions of each undirected edge. Topology
+    # and clock arrays are identical in the reverse graph; only risk differs.
+    forward = (rows, targets, duration, forward_weight)
+    backward = (rows, targets, duration, reverse_weight)
     goal_flags = np.zeros(n, np.uint8)
     goal_flags[list(goals)] = 1
     route = np.empty(n, np.uint32)
@@ -150,11 +146,7 @@ def native_graph_search(
     storage.high_water = max(storage.high_water, stats.peak)
     if status == -1:
         raise RuntimeError("compiled deadline certificate or witness failed")
-    if status == -2 and (
-        strategy in ("native_exact", "native_dp") or not stats.route_length
-    ):
-        return replace(fallback(), search_strategy="native_memory_fallback")
-    return DeadlineRoute(
+    result = DeadlineRoute(
         tuple(int(node) for node in route[: stats.route_length]),
         int(stats.travel),
         stats.cost / 65536,
@@ -165,6 +157,33 @@ def native_graph_search(
         storage.high_water,
         lower_bound_q16=int(stats.lower_bound),
         search_strategy=strategy,
+        expanded_labels=int(stats.expanded),
         preprocessing_runs=int(stats.runs),
         dynamic_states=int(stats.states),
     )
+
+    if status == -2 and (
+        strategy in ("native_exact", "native_dp") or not stats.route_length
+    ):
+        alternative = fallback()
+        if alternative.feasible and (
+            not result.feasible
+            or alternative.estimated_objective <= result.estimated_objective
+        ):
+            return replace(
+                alternative,
+                search_strategy="native_memory_fallback",
+                labels_used=max(alternative.labels_used, result.labels_used),
+                expanded_labels=alternative.expanded_labels + result.expanded_labels,
+            )
+        if result.feasible:
+            return replace(
+                result,
+                search_strategy="native_memory_fallback",
+                resource_fallback=True,
+                lower_bound_q16=max(
+                    result.lower_bound_q16 or 0, alternative.lower_bound_q16 or 0
+                ),
+            )
+        return replace(alternative, search_strategy="native_memory_fallback")
+    return result

@@ -197,8 +197,15 @@ def main(argv=None):
         "scipy": scipy.__version__,
         "source_files_sha256": hashes,
         "samples_per_case": 5,
-        "timing": "Full cold API call including quantization, graph assembly, allocation and preprocessing; all compiled libraries/imports warmed outside timing.",
-        "memory_scope": "Numeric scratch only; host graph arrays, Python heap objects and native HiGHS/reference process memory excluded.",
+        "timing": (
+            "Full cold API call including quantization, graph assembly, "
+            "allocation and preprocessing; all compiled libraries/imports "
+            "warmed outside timing."
+        ),
+        "memory_scope": (
+            "Numeric scratch only; host graph arrays, Python heap "
+            "objects and native HiGHS/reference process memory excluded."
+        ),
         "cases": rows,
         "summary": summarize(rows),
         "by_family": {

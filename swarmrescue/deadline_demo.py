@@ -43,7 +43,7 @@ def comparison():
     cases = {}
     for deadline in range(20, 41):
         rows = {}
-        for name, strategy in (("legacy", "pareto"), ("hybrid", "hybrid_exact")):
+        for name, strategy in (("legacy", "pareto"), ("hybrid", "native_exact")):
             route = deadline_route(
                 graph,
                 0,

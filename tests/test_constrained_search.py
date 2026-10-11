@@ -262,7 +262,7 @@ def test_hybrid_dp_fit_boundary_preserves_prefix_and_honest_fallback():
                 assert result.resource_fallback
 
 
-def test_safeguard_uses_hybrid_for_invalid_proposal():
+def test_safeguard_uses_compiled_hybrid_for_invalid_proposal():
     from ember.routing.deadline import safeguard_route_deadline
 
     graph = graph_from_edges(4, [(0, 1), (1, 3), (0, 2), (2, 3)], [1, 1, 4, 4])
@@ -276,7 +276,7 @@ def test_safeguard_uses_hybrid_for_invalid_proposal():
         walking_speed_m_s=1,
         dt_s=1,
     )
-    assert result.search_strategy == "hybrid_exact"
+    assert result.search_strategy == "native_exact"
     assert result.proposal_replaced and result.optimal and result.dynamic_states == 32
 
 
@@ -332,3 +332,57 @@ def test_native_graph_csr_accepts_unsigned_node_indices():
         strategy="native_exact",
     )
     assert result.optimal and result.route == (0, 1, 2)
+
+
+def test_native_unit_clock_bfs_keeps_exact_cost_ties_and_multiple_exits():
+    from eval.constrained_benchmark import arcs, dp_optimum
+
+    rng = np.random.default_rng(881250)
+    for _ in range(500):
+        n = int(rng.integers(4, 24))
+        edges = [(i, i + 1) for i in range(n - 1)]
+        edges += [
+            (i, j) for i in range(n) for j in range(i + 2, n) if rng.random() < 0.12
+        ]
+        graph = graph_from_edges(n, edges, np.ones(len(edges)))
+        risk = rng.uniform(0, 25, n)
+        deadline = int(rng.integers(0, 30))
+        goals = (n - 2, n - 1)
+        optimum = dp_optimum(arcs(graph, risk), 0, goals, deadline)
+        result = deadline_route(
+            graph,
+            0,
+            goals,
+            risk,
+            available_steps=deadline,
+            walking_speed_m_s=1,
+            dt_s=1,
+            strategy="native_exact",
+        )
+        assert result.feasible == (optimum is not None)
+        assert result.optimal
+        if result.feasible:
+            assert result.estimated_objective == optimum / 65536
+            assert result.travel_steps == len(result.route) - 1 <= deadline
+            assert len(set(result.route)) == len(result.route)
+
+
+@pytest.mark.parametrize(
+    "strategy", ["hybrid_exact", "window_dp", "native_exact", "native_dp"]
+)
+def test_extreme_clock_remains_bounded_when_native_metadata_cannot_fit(strategy):
+    graph = graph_from_edges(4, [(0, 1), (1, 3), (0, 2), (2, 3)], [1, 1, 1.05, 1.05])
+    arena = MCUArena(256)
+    result = deadline_route(
+        graph,
+        0,
+        (3,),
+        np.array([0.0, 10.0, 0.0, 0.0]),
+        available_steps=2_000_000_001,
+        walking_speed_m_s=1,
+        dt_s=1e-9,
+        arena=arena,
+        strategy=strategy,
+    )
+    assert result.optimal and result.feasible and result.estimated_objective == 12.0
+    assert arena.used == 0 and arena.high_water <= 256

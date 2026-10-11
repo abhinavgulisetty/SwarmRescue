@@ -330,7 +330,7 @@ def safeguard_route_deadline(
     walking_speed_m_s,
     dt_s,
     arena=None,
-    strategy="hybrid_exact",
+    strategy="native_exact",
 ):
     """Preserve a feasible proposal; replace an infeasible one by exact hybrid routing.
 

@@ -145,8 +145,15 @@ def _window_dp(adjacent, start, goals, deadline, minimum, maximum, storage):
     source, target, duration, weight = np.array(flat, dtype=np.int64).T
     if int(weight.max()) * deadline >= INF:
         raise ValueError("dynamic cost exceeds int64 range")
-    for remaining in range(1, deadline + 1):
+    remaining = 1
+    while remaining <= deadline:
         nodes = np.flatnonzero((low <= remaining) & (remaining <= high))
+        if not len(nodes):
+            upcoming = low[(low > remaining) & (low <= high)]
+            if not len(upcoming):
+                break
+            remaining = int(upcoming.min())
+            continue
         inherited = nodes[low[nodes] < remaining]
         here = offsets[inherited] + remaining - low[inherited]
         values[here] = values[here - 1]
@@ -165,6 +172,7 @@ def _window_dp(adjacent, start, goals, deadline, minimum, maximum, storage):
             offsets[u[finite]] + remaining - low[u[finite]],
             child[finite] + weight[usable][finite],
         )
+        remaining += 1
     best = int(values[offsets[start] + deadline - low[start]])
     if best == INF:
         raise RuntimeError("feasible corridor lost its path")

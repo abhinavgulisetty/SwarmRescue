@@ -100,26 +100,62 @@ static int table(Pool *p, uint32_t n, const uint32_t *rows, const uint32_t *to,
       push(&h, v);
     }
   int64_t threshold = INF;
-  while (h.count) {
-    uint32_t u = pop(&h);
-    if (finish >= 0)
+  int uniform = finish >= 0 && time_first;
+  if (uniform)
+    for (uint32_t e = 0; e < rows[n]; e++)
+      if (duration[e] != 1) {
+        uniform = 0;
+        break;
+      }
+  if (uniform) {
+    /* All predecessors in the previous BFS layer finish before a node is
+       popped. Thus both minimum time and its minimum-cost tie are exact. */
+    uint32_t head = 0, tail = h.count;
+    while (head < tail) {
+      uint32_t u = nodes[head++];
       t->next[u] |= 0x80000000u;
-    if (finish >= 0 && u == (uint32_t)finish) {
-      threshold = t->a[u];
-      break;
+      if (u == (uint32_t)finish) {
+        threshold = t->a[u];
+        break;
+      }
+      for (uint32_t e = rows[u]; e < rows[u + 1]; e++) {
+        uint32_t v = to[e];
+        if (t->b[u] > INF - weight[e])
+          continue;
+        int64_t first = t->a[u] + 1, second = t->b[u] + weight[e];
+        if (t->a[v] == INF) {
+          t->a[v] = first;
+          t->b[v] = second;
+          t->next[v] = u;
+          nodes[tail++] = v;
+        } else if (t->a[v] == first && second < t->b[v]) {
+          t->b[v] = second;
+          t->next[v] = u;
+        }
+      }
     }
-    for (uint32_t e = rows[u]; e < rows[u + 1]; e++) {
-      uint32_t v = to[e];
-      int64_t x = time_first ? duration[e] : weight[e],
-              y = time_first ? weight[e] : duration[e];
-      if (t->a[u] > INF - x || t->b[u] > INF - y)
-        continue;
-      int64_t a = t->a[u] + x, b = t->b[u] + y;
-      if (a < t->a[v] || (a == t->a[v] && b < t->b[v])) {
-        t->a[v] = a;
-        t->b[v] = b;
-        t->next[v] = u;
-        push(&h, v);
+  } else {
+    while (h.count) {
+      uint32_t u = pop(&h);
+      if (finish >= 0)
+        t->next[u] |= 0x80000000u;
+      if (finish >= 0 && u == (uint32_t)finish) {
+        threshold = t->a[u];
+        break;
+      }
+      for (uint32_t e = rows[u]; e < rows[u + 1]; e++) {
+        uint32_t v = to[e];
+        int64_t x = time_first ? duration[e] : weight[e],
+                y = time_first ? weight[e] : duration[e];
+        if (t->a[u] > INF - x || t->b[u] > INF - y)
+          continue;
+        int64_t a = t->a[u] + x, b = t->b[u] + y;
+        if (a < t->a[v] || (a == t->a[v] && b < t->b[v])) {
+          t->a[v] = a;
+          t->b[v] = b;
+          t->next[v] = u;
+          push(&h, v);
+        }
       }
     }
   }
@@ -221,7 +257,12 @@ static int search(Pool *p, uint32_t n, const uint32_t *rows, const uint32_t *to,
   }
   for (uint32_t i = 0; i < n; i++)
     closed[i] = NONE;
-  size_t remaining = p->capacity - ((p->used + 7) & ~(size_t)7);
+  size_t aligned = (p->used + 7) & ~(size_t)7;
+  if (aligned > p->capacity) {
+    p->used = mark;
+    return 0;
+  }
+  size_t remaining = p->capacity - aligned;
   uint32_t quota = (uint32_t)(remaining / (sizeof(Label) + 4));
   if (quota > limit)
     quota = limit;
@@ -250,6 +291,7 @@ static int search(Pool *p, uint32_t n, const uint32_t *rows, const uint32_t *to,
     if (closed[u] <= current.time)
       continue;
     closed[u] = current.time;
+    s->expanded++;
     if (goals[u]) {
       s->route_length = label_path(l, index, n, route);
       s->cost = current.cost;
@@ -260,29 +302,24 @@ static int search(Pool *p, uint32_t n, const uint32_t *rows, const uint32_t *to,
     if (suffix && cheap.b[u] <= deadline - current.time &&
         current.cost <= INF - cheap.a[u] &&
         current.cost + cheap.a[u] < s->cost) {
-      /* Use spare output space temporarily only if the incumbent improves. */
+      /* Arrival clocks fit 31 bits. Borrow the high bit of already-closed
+         prefix vertices for linear-time cycle checks, then restore it. */
       uint32_t length = 0, k = index;
       while (k != NONE) {
         length++;
+        closed[l[k].node] |= 0x80000000u;
         k = l[k].parent;
       }
       uint32_t v = u, extra = 0;
       int valid = length <= n;
       while (valid && !goals[v]) {
         v = cheap.next[v];
-        if (v >= n || ++extra + length > n) {
+        if (v >= n || ++extra + length > n ||
+            (closed[v] != NONE && (closed[v] & 0x80000000u)))
           valid = 0;
-          break;
-        }
-        k = index;
-        while (k != NONE) {
-          if (l[k].node == v) {
-            valid = 0;
-            break;
-          }
-          k = l[k].parent;
-        }
       }
+      for (k = index; k != NONE; k = l[k].parent)
+        closed[l[k].node] &= 0x7fffffffu;
       if (valid) {
         s->route_length = label_path(l, index, n, route);
         v = u;
@@ -507,10 +544,8 @@ int ember_deadline_exact(uint32_t n, const uint32_t *rows, const uint32_t *to,
     s->optimal = 1;
     goto done;
   }
-  if (mode == 3 || mode == 4) {
+  if (mode == 3 || (mode == 4 && (uint64_t)(deadline + 1) * n > 8192)) {
     uint32_t limit = label_limit;
-    if (mode == 4 && limit > 32)
-      limit = 32;
     if (search(&p, n, rows, to, duration, weight, goals, start, deadline, limit,
                mode == 4, fast, cheap, route, s)) {
       s->optimal = 1;
