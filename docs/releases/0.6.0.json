@@ -92,5 +92,18 @@
     "Numeric scratch excludes host input/output graph arrays and third-party RAM.",
     "New deadline kernel host-side; unchanged Cortex-M4 Bellman service.",
     "No physical-board flashing, remote publication or git push."
-  ]
+  ],
+  "portable_bundle": {
+    "path": "outputs/releases/0.6.0/swarmrescue-0.6.0-fast-routing.tar.gz",
+    "bytes": 8682161,
+    "sha256": "f2040d35106a9462d7de7362f0e83652b0bb10aa4199bcd206cb7af0103b57ec",
+    "verified_files": 59
+  },
+  "portable_install_check": {
+    "accepted": true,
+    "runtime_identity_matches_original": true,
+    "native_bellman_and_deadline_smoke_passed": true,
+    "adaptive_live_arm_smoke_passed": true,
+    "deadline_demo_budgets": 21
+  }
 }
