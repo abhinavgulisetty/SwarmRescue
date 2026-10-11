@@ -41,6 +41,8 @@ DEVELOPMENT_SEEDS = tuple(range(72000, 72004))
 EVALUATION_SEEDS = tuple(range(82000, 82012))
 CANDIDATE = "native_exact"
 SOURCES = (
+    "eval/native_deadline_reference.py",
+    "eval/reference_constrained.py",
     "firmware/deadline_exact.c",
     "firmware/deadline_exact.h",
     "mcu/native_deadline.py",
