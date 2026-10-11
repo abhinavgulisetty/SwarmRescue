@@ -17,6 +17,11 @@ STRATEGIES = (
     "hybrid_exact",
     "bounded_dp",
     "window_dp",
+    "native_exact",
+    "native_dp",
+    "native_full_dp",
+    "native_window_dp",
+    "native_astar",
 )
 
 
@@ -109,7 +114,8 @@ def test_exact_methods_match_independent_time_expanded_dp(strategy):
 
 
 @pytest.mark.parametrize("capacity", [1, 2, 8, 64])
-def test_memory_capped_dual_search_keeps_feasibility_and_valid_gap(capacity):
+@pytest.mark.parametrize("strategy", ["dual_astar", "native_exact", "native_astar"])
+def test_memory_capped_dual_search_keeps_feasibility_and_valid_gap(capacity, strategy):
     rng = np.random.default_rng(971)
     for _ in range(40):
         n = 9
@@ -136,7 +142,7 @@ def test_memory_capped_dual_search_keeps_feasibility_and_valid_gap(capacity):
             dt_s=0.5,
             max_labels=capacity,
             arena=arena,
-            strategy="dual_astar",
+            strategy=strategy,
         )
         assert arena.used == 3 and bytes(prefix) == b"abc" and arena.high_water <= 4096
         assert result.labels_used <= capacity
@@ -291,3 +297,38 @@ def test_dynamic_certificates_preserve_costs_above_label_integer_range(strategy)
     assert result.optimal and result.feasible and result.certified_gap == 0
     assert result.estimated_objective == 40762.0
     assert result.estimated_objective * 65536 > INT32_MAX
+
+
+@pytest.mark.parametrize("strategy", ["native_dp", "native_window_dp"])
+def test_native_corridor_skips_large_empty_clock_intervals(strategy):
+    graph = graph_from_edges(4, [(0, 1), (1, 3), (0, 2), (2, 3)], [1, 1, 1.05, 1.05])
+    result = deadline_route(
+        graph,
+        0,
+        (3,),
+        np.array([0.0, 10.0, 0.0, 0.0]),
+        available_steps=2_000_000_001,
+        walking_speed_m_s=1,
+        dt_s=1e-9,
+        strategy=strategy,
+    )
+    assert result.optimal and result.feasible and result.dynamic_states < 20
+    assert result.estimated_objective == 12.0
+
+
+def test_native_graph_csr_accepts_unsigned_node_indices():
+    from dataclasses import replace
+
+    graph = graph_from_edges(3, [(0, 1), (1, 2)], [1, 1])
+    graph = replace(graph, edges=graph.edges.astype(np.uint64))
+    result = deadline_route(
+        graph,
+        0,
+        (2,),
+        np.zeros(3),
+        available_steps=2,
+        walking_speed_m_s=1,
+        dt_s=1,
+        strategy="native_exact",
+    )
+    assert result.optimal and result.route == (0, 1, 2)

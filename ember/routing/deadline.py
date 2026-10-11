@@ -67,6 +67,11 @@ def deadline_route(
         "hybrid_exact",
         "bounded_dp",
         "window_dp",
+        "native_exact",
+        "native_dp",
+        "native_full_dp",
+        "native_window_dp",
+        "native_astar",
     ):
         raise ValueError("unknown deadline search strategy")
     risk = np.asarray(risk_cost, dtype=float)
@@ -110,7 +115,6 @@ def deadline_route(
         raise ValueError(
             "graph edges require valid endpoints and finite nonnegative lengths"
         )
-    adjacent = [[] for _ in range(graph.n_nodes)]
     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
         travel = np.maximum(1.0, np.ceil(graph.edge_cost / walking_speed_m_s / dt_s))
         if not np.all(np.isfinite(travel)) or np.any(travel >= INT32_MAX):
@@ -123,6 +127,34 @@ def deadline_route(
         if not np.all(np.isfinite(encoded)) or np.any(encoded >= INT32_MAX):
             raise ValueError("edge objective exceeds integer finite range")
         costs = np.maximum(1, encoded).astype(np.int64)
+    if strategy.startswith("native_"):
+        from mcu.native_deadline import native_graph_search
+
+        return native_graph_search(
+            graph.edges,
+            steps,
+            costs,
+            graph.n_nodes,
+            start,
+            goals,
+            available_steps,
+            max_labels,
+            arena=arena,
+            strategy=strategy,
+            fallback=lambda: deadline_route(
+                graph,
+                start,
+                goals,
+                risk_cost,
+                available_steps=available_steps,
+                walking_speed_m_s=walking_speed_m_s,
+                dt_s=dt_s,
+                max_labels=max_labels,
+                arena=arena,
+                strategy="hybrid_exact",
+            ),
+        )
+    adjacent = [[] for _ in range(graph.n_nodes)]
     for index, (left, right) in enumerate(graph.edges):
         a, b, duration = int(left), int(right), int(steps[index])
         adjacent[a].append((b, duration, int(costs[index, 1])))
