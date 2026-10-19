@@ -58,6 +58,7 @@ def test_launcher_preserves_paths_arguments_cache_and_working_directory(tmp_path
         cli,
         firmware={"executable": str(image)} if arm else None,
         tool_root=tools,
+        complete_rescue=True,
     )
     result = subprocess.run(
         [str(launcher), "--seed", "7", "--report", "a 'quoted' report.json"],
@@ -70,6 +71,8 @@ def test_launcher_preserves_paths_arguments_cache_and_working_directory(tmp_path
     assert decoded["cwd"] == str(prefix)
     assert decoded["cache"] == str(prefix / "cache")
     assert decoded["args"][-4:] == ["--seed", "7", "--report", "a 'quoted' report.json"]
+    index = decoded["args"].index("--rescue-assignment")
+    assert decoded["args"][index + 1] == "complete"
     if arm:
         index = decoded["args"].index("--firmware-image")
         assert decoded["args"][index + 1] == str(image)

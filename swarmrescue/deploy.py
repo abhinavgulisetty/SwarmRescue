@@ -147,8 +147,10 @@ def install(wheel, prefix, *, tool_root=None):
             firmware["startup_check"] = json.loads(probe.stdout)
     (prefix / "doctor.json").write_text(json.dumps(health, indent=2) + "\n")
     supports_rescue = "rescue" in health.get("supported_commands", ())
+    supports_complete = "certificate-evaluation" in health.get("supported_commands", ())
     launcher = write_launcher(
-        prefix, cli, firmware=firmware, tool_root=tool_root, evacuate=supports_rescue
+        prefix, cli, firmware=firmware, tool_root=tool_root, evacuate=supports_rescue,
+        complete_rescue=supports_rescue and supports_complete,
     )
     report = {
         "schema_version": 1,
@@ -156,6 +158,7 @@ def install(wheel, prefix, *, tool_root=None):
         "ready": health["ready"],
         "status": "ready",
         "workflow": "search-contact-evacuation" if supports_rescue else "search-only",
+        "rescue_assignment": "complete" if supports_complete else "distance",
         "package_version": health["package_version"],
         "wheel": str(wheel),
         "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
@@ -172,7 +175,9 @@ def install(wheel, prefix, *, tool_root=None):
     return report
 
 
-def write_launcher(prefix, cli, *, firmware=None, tool_root=None, evacuate=True):
+def write_launcher(
+    prefix, cli, *, firmware=None, tool_root=None, evacuate=True, complete_rescue=False
+):
     """Write a standalone POSIX launcher with literal paths and forwarded options."""
     command = [
         str(cli),
@@ -197,6 +202,8 @@ def write_launcher(prefix, cli, *, firmware=None, tool_root=None, evacuate=True)
     ]
     if evacuate:
         command.append("--evacuate")
+        if complete_rescue:
+            command += ["--rescue-assignment", "complete"]
     if firmware:
         command += [
             "--firmware-robots",

@@ -1,0 +1,22 @@
+{
+  "package_version": "0.7.0",
+  "wheel_sha256": "fd814bf17c2c3465d34d43d21dd7b68997041611771d4e2e921f29cae7944529",
+  "installed_source_fingerprint": "105d9a17ef9d6bfd09c83edbf6c2db53ad1990d639722c7838defa2832237c3d",
+  "checked_root_and_installed_module_sha256": {
+    "cascade/demo.py": "3893888d0bb0bb058f42a3c6d1e5356092cb91764687f9e6e9e34bc27064309a",
+    "ember/rescue_certificate.py": "f18e5132024d9e347ce2955cef53613f6a84bf47109daa9819c8512eae32cdab",
+    "ember/rescue_planning.py": "25c38b24da175720b181a7db5a9bd85dce0d875ebd2aa610f8b4c0783a848295",
+    "eval/lag_rescue_validation.py": "7ad238e2459cb02cbc88832f7f0e456ec91a5fbe710b6c913775ddbebda17885",
+    "eval/external_rescue_reference.py": "bb7f14ecd6a6769674fdb5c7a4eabf52557ba5d8a2a362d28a430b35874d0d1b",
+    "swarmrescue/cli.py": "e79db8cd3612792e57c25563692148b692705ea7015d956ee111581dd209f00f",
+    "swarmrescue/rescue.py": "824d2d91b73f42042ffb213a61a71066b5c0d9a88ca3d6269a76dc29e01a66d6",
+    "swarmrescue/deploy.py": "069e7dc69359d2418c2a124afe4af720fde937668a13a4939032e1b3ac72d5b9"
+  },
+  "tests": {
+    "tests": 933,
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0
+  },
+  "tests_xml_sha256": "348566b865ff2c863a17e363cdae4968cbe9c75d844480700d904030ed7519da"
+}

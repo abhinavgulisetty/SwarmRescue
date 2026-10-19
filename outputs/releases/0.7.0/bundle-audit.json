@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "archive": "swarmrescue-0.7.0-complete-rescue.tar.gz",
+  "archive_sha256": "5e62f2ab8feaa5e31e13ca85e57f73170f0747c0dad8aca0f348a7881fdb5f76",
+  "archive_files": 56,
+  "checksummed_payload_files": 55,
+  "all_payload_checksums_valid": true,
+  "release_checksums_valid": true,
+  "wheel_version": "0.7.0",
+  "receipt_matches_repository": true,
+  "safe_relative_regular_file_members": true,
+  "review_sources_match_wheel": true,
+  "manifest_artifact_paths_resolve": true,
+  "broken_markdown_links": []
+}

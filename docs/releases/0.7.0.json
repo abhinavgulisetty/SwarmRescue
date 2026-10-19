@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "package_version": "0.7.0",
+  "delivery_date": "2026-10-16",
+  "status": "software-release-and-declared-simulated-missions-validated",
+  "contribution": "Complete-rescue verification of approach, survivor waiting and bounded-timing escort under fixed hazard scenarios, with a proved max-plus checker and frozen-belief assignment integration.",
+  "wheel": {
+    "file": "wheel/swarmrescue-0.7.0-py3-none-any.whl",
+    "sha256": "fd814bf17c2c3465d34d43d21dd7b68997041611771d4e2e921f29cae7944529"
+  },
+  "installed_source_fingerprint": "105d9a17ef9d6bfd09c83edbf6c2db53ad1990d639722c7838defa2832237c3d",
+  "source_validation": {
+    "path": "frozen-source-validation.json",
+    "sha256": "dc46fb9f35508017ab370d706863b848aafaa536f43e2fd860b4b26d175a6ca6"
+  },
+  "tests": {
+    "tests": 933,
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0,
+    "xml_sha256": "348566b865ff2c863a17e363cdae4968cbe9c75d844480700d904030ed7519da",
+    "arm_toolchain_enabled": true
+  },
+  "style": {
+    "changed_files_ruff_passed": true,
+    "tracked_release_diff_whitespace_passed": true,
+    "legacy_tree_preexisting_findings": 558,
+    "legacy_tree_affected_files": 45
+  },
+  "independent_graph_check": {
+    "method": "NetworkX dag_longest_path on independently materialized stage/time graphs",
+    "protocol_sha256": "d7595401064ad8b0937f5b095e1b879575cb3045fc642f445e26e28efd75a84b",
+    "results_sha256": "9e14cfcde86c415e7a8993f0915515a854ff8be24b0755c5be9c169d5e2f2a47",
+    "floating_cases": 288,
+    "maximum_floating_discrepancy": 2.220446049250313e-15,
+    "exact_integer_cases": 288,
+    "exact_integer_mismatches": 0,
+    "selected_complete_missions": 80,
+    "complete_scenario_timing_replays": 5352,
+    "all_selected_replays_within_budgets": true,
+    "method_counts": {
+      "fixed_timing_scenario": {
+        "accepted_candidates": 255,
+        "false_acceptances": 31,
+        "false_rejections": 0
+      },
+      "lag_robust": {
+        "accepted_candidates": 224,
+        "false_acceptances": 0,
+        "false_rejections": 0
+      },
+      "maximum_duration_only": {
+        "accepted_candidates": 226,
+        "false_acceptances": 2,
+        "false_rejections": 0
+      },
+      "pointwise_scenario_reset": {
+        "accepted_candidates": 196,
+        "false_acceptances": 0,
+        "false_rejections": 28
+      }
+    },
+    "installed_distribution_reproduction": {
+      "protocol_sha256": "df5adee390f5eed0eeeee37a5cd624ac2e17482091fbe3500b776d34d33bcd33",
+      "results_sha256": "75a13be3bddfc0b4925720d4a7cb998c42b7e54bc290a7a11700e0c94b5d94c0",
+      "exact_integer_cases": 288,
+      "exact_integer_mismatches": 0,
+      "complete_scenario_timing_replays": 5352
+    },
+    "study_scope": "synthetic development instances; no held-out, global route optimality, or physical calibration claim"
+  },
+  "original_author_reproduction": {
+    "repository": "https://github.com/TihanyiD/multi_alloc",
+    "commit": "ddce51c4dc8c067d350ee89bbf41cea76b401f47",
+    "receipt_sha256": "05a2a5df7a28526f7ad149237c7cf5aa589c6333d2777b72bdb1f02fc0f28321",
+    "harness_sha256": "bb7f14ecd6a6769674fdb5c7a4eabf52557ba5d8a2a362d28a430b35874d0d1b",
+    "tracked_source_and_supplied_data_unchanged": true,
+    "fresh_allocation_methods": [
+      "Forward_Greedy",
+      "Reverse_Greedy",
+      "Brute_Force"
+    ],
+    "all_allocations_and_objectives_match_supplied_results": true,
+    "fresh_forward_reverse_policy_replay": true,
+    "supplied_hazard_episodes": 5000,
+    "supplied_objective_table_and_hazard_episodes_reused": true,
+    "matched_comparison_with_new_method": false,
+    "source_vendored": false
+  },
+  "simulated_physical_rescue": {
+    "acceptance_summary_sha256": "2b1e7132e3c80c83d8a922eb1b13dd3b2b9436635831b733fcc20fd53859ee69",
+    "accepted_runs": 5,
+    "same_runtime_sources": true,
+    "runs": [
+      {
+        "seed": 19,
+        "robots": 8,
+        "accepted": true,
+        "issues": [],
+        "survivors_evacuated": 8,
+        "last_evacuation_s": 122.394,
+        "survivor_exposure_proxy": 76.82403677850493,
+        "firmware_requests": 0,
+        "report": "validation/seed19-complete-native.json",
+        "source_bundle_sha256": "eada81b9a036872698d6108796b127f0e1b2d49a49ec2beff801c48473d88a56"
+      },
+      {
+        "seed": 42,
+        "robots": 8,
+        "accepted": true,
+        "issues": [],
+        "survivors_evacuated": 8,
+        "last_evacuation_s": 82.928,
+        "survivor_exposure_proxy": 8.289298709202399,
+        "firmware_requests": 0,
+        "report": "validation/seed42-complete-native.json",
+        "source_bundle_sha256": "f5f94ffbe1eabbdb5c62ded3286938e40e7f9c176c242861f05e2548896f79df"
+      },
+      {
+        "seed": 42,
+        "robots": 8,
+        "accepted": true,
+        "issues": [],
+        "survivors_evacuated": 8,
+        "last_evacuation_s": 82.928,
+        "survivor_exposure_proxy": 8.289298709202399,
+        "firmware_requests": 26,
+        "report": "validation/seed42-complete-arm.json",
+        "source_bundle_sha256": "8863c9610d83976a4ea0bdfe72ac2f93e088a0aaba15819b7d125163b368df6a"
+      },
+      {
+        "seed": 7,
+        "robots": 4,
+        "accepted": true,
+        "issues": [],
+        "survivors_evacuated": 4,
+        "last_evacuation_s": 67.274,
+        "survivor_exposure_proxy": 64.10427553161027,
+        "firmware_requests": 0,
+        "report": "validation/seed7-complete-native.json",
+        "source_bundle_sha256": "638be6c3129d2f04b2bff6dd20c32fcc046e117036a6109c50d5acfb29940130"
+      },
+      {
+        "seed": 42,
+        "robots": 8,
+        "accepted": true,
+        "issues": [],
+        "survivors_evacuated": 8,
+        "last_evacuation_s": 81.396,
+        "survivor_exposure_proxy": 8.825713661088622,
+        "firmware_requests": 0,
+        "report": "validation/seed42-distance-native.json",
+        "source_bundle_sha256": "cc02862066d89c7a2de925a39348631e8c103986edc5b0badca523a498709a12"
+      }
+    ],
+    "native_arm_comparison": {
+      "all_equal": true,
+      "fields": {
+        "survivor_contact_time_s": true,
+        "survivor_evacuation_time_s": true,
+        "survivor_positions_m": true,
+        "survivor_distance_m": true,
+        "survivor_exposure_proxy": true,
+        "robot_positions_m": true,
+        "robot_arrival_time_s": true,
+        "radio_bytes": true
+      }
+    },
+    "assignment_control_comparison": {
+      "complete": {
+        "last_evacuation_s": 82.928,
+        "survivor_exposure_proxy": 8.289298709202399
+      },
+      "distance": {
+        "last_evacuation_s": 81.396,
+        "survivor_exposure_proxy": 8.825713661088622
+      },
+      "relative_change_percent": {
+        "last_evacuation_s": 1.8821563713204537,
+        "survivor_exposure_proxy": -6.077864889852536
+      }
+    },
+    "preflight": "private temporally frozen routing-cost field; exposure budgets disabled; candidate routes checked before assignment; not a certificate of executed physical dose"
+  },
+  "firmware": {
+    "platform": "Cortex-M4 routing service under QEMU",
+    "sha256": "098a65c455f7c9d11b32b0ecb792d3d4f720f3fbfa1fca4a4fc944b9511d8222",
+    "kernel_service_ram_bytes": 184336,
+    "reserved_stack_bytes": 16384,
+    "whole_robot_firmware": false,
+    "hardware_cycles_measured": false,
+    "physical_board_flashed": false
+  },
+  "runtime_lock_sha256": "63521e8f6572f65c931e09f7f9ce0d0c83e52bc384c2b48767dc830335dc13ba",
+  "open_claims": {
+    "historical_originality_proven": false,
+    "physical_hazard_containment_calibrated": false,
+    "human_survival_certified": false,
+    "partition_safe_ownership_handoff_proven": false,
+    "whole_robot_mcu_resources_certified": false,
+    "external_state_of_the_art_superiority_established": false,
+    "whole_project_acceptance_gate_met": false
+  },
+  "artifact_path_base": "portable bundle root"
+}

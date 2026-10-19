@@ -1,0 +1,13 @@
+{
+  "all_equal": true,
+  "fields": {
+    "survivor_contact_time_s": true,
+    "survivor_evacuation_time_s": true,
+    "survivor_positions_m": true,
+    "survivor_distance_m": true,
+    "survivor_exposure_proxy": true,
+    "robot_positions_m": true,
+    "robot_arrival_time_s": true,
+    "radio_bytes": true
+  }
+}

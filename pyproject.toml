@@ -1,6 +1,6 @@
 [project]
 name = "swarmrescue"
-version = "0.6.0"
+version = "0.7.0"
 description = "EMBER -- edge-native message-passing for Bellman-egress routing"
 requires-python = ">=3.11,<3.13"
 dependencies = [

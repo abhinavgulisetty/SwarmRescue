@@ -16,6 +16,8 @@ DEFAULT_ARGUMENTS = (
     "--range-gbp",
     "--range-radio",
     "--evacuate",
+    "--rescue-assignment",
+    "complete",
     "--no-render",
 )
 

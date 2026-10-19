@@ -15,6 +15,7 @@ COMMANDS = {
     "rescue": "swarmrescue.rescue",
     "cases": "swarmrescue.cases",
     "rescue-evaluation": "eval.rescue",
+    "certificate-evaluation": "eval.lag_rescue_validation",
     "tactical": "ember.demo",
     "view": "cascade.view",
     "evaluate": "eval.procedural",

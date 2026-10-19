@@ -56,6 +56,7 @@ from ember.physical_team import (
     structural_pose_change_m,
 )
 from ember.regions import RegionRobotTeam
+from ember.rescue_planning import complete_rescue_assignment, private_fine_risk
 from ember.routing import OracleCostConfig
 from ember.search import (
     CooperativeSearchResult,
@@ -342,6 +343,53 @@ def _baseline_route(
     return route
 
 
+def _rescue_preflight(graph, team, search, robot_positions, footprint, available_s):
+    """Evaluate complete candidates using receiver-local estimates and beliefs."""
+    positions = graph.world_positions()
+    estimates = search.receiver_estimated_positions_m
+    if estimates is None:
+        estimates = np.broadcast_to(
+            search.estimated_positions_m,
+            (len(robot_positions), *search.estimated_positions_m.shape),
+        )
+    targets = np.array(
+        [
+            [_search_target_node(graph, xy, footprint, 0.0) for xy in row]
+            for row in estimates
+        ]
+    )
+    exits = np.flatnonzero(
+        (np.asarray(_interior_depths(positions, footprint)) <= -1.0)
+        & (np.abs(positions[:, 2]) <= 0.1)
+    )
+    result = complete_rescue_assignment(
+        positions,
+        graph.edges,
+        np.array([nearest_node(graph, tuple(p)) for p in robot_positions]),
+        targets,
+        exits,
+        private_fine_risk(team),
+        available_time_s=available_s,
+    )
+    if any(index < 0 for index in result.robot_to_survivor):
+        raise RuntimeError("no complete model-feasible one-to-one rescue assignment")
+    estimated = search.estimated_positions_m.copy()
+    covariance = search.covariance_m2.copy()
+    if search.receiver_estimated_positions_m is not None:
+        for robot, survivor in enumerate(result.robot_to_survivor):
+            estimated[survivor] = search.receiver_estimated_positions_m[robot, survivor]
+            covariance[survivor] = search.receiver_covariance_m2[robot, survivor]
+    return (
+        replace(
+            search,
+            robot_to_beacon=result.robot_to_survivor,
+            estimated_positions_m=estimated,
+            covariance_m2=covariance,
+        ),
+        result,
+    )
+
+
 def _routing_hazard_center(
     assignments: list[Assignment],
 ) -> tuple[float, float, float]:
@@ -462,6 +510,15 @@ class DemoResult:
     terminal_homing_plans: int = 0
     blocked_evacuation_plans: int = 0
     mission_horizon_s: float = LIVE_DISASTER_SECONDS
+    rescue_assignment_method: str = "distance"
+    rescue_preflight_model: str | None = None
+    rescue_preflight_pairs: int = 0
+    rescue_preflight_rejected_pairs: int = 0
+    rescue_preflight_robot_bounds: tuple[float, ...] = ()
+    rescue_preflight_survivor_bounds: tuple[float, ...] = ()
+    rescue_preflight_latest_completion_s: tuple[float, ...] = ()
+    rescue_preflight_exit_positions_m: tuple[tuple[float, ...], ...] = ()
+    rescue_exit_checked_before_contact: bool = False
 
     @property
     def arrived(self) -> int:
@@ -708,9 +765,14 @@ def run_demo(
     routing_backends: tuple = (),
     evacuate: bool = False,
     mission_horizon_s: float | None = None,
+    rescue_assignment: str = "distance",
 ) -> DemoResult:
     if evacuate and not distributed_physical:
         raise ValueError("physical evacuation requires distributed live-disaster mode")
+    if rescue_assignment not in ("distance", "complete") or (
+        rescue_assignment == "complete" and not evacuate
+    ):
+        raise ValueError("complete rescue assignment requires physical evacuation")
     mission_horizon_s = (
         (180.0 if evacuate else LIVE_DISASTER_SECONDS)
         if mission_horizon_s is None
@@ -1024,6 +1086,8 @@ def run_demo(
     search_rng = stage_rng(seed, "search")
     search_result: CooperativeSearchResult | None = None
     search_targets: list[np.ndarray | None] = [None] * len(swarm.members)
+    rescue_preflight = None
+    rescue_exit_targets = [None] * len(swarm.members)
     pending_geometry_refresh_s: float | None = None
     last_hazard_scan_s = float("inf")
     hazard_only_refreshes = 0
@@ -1147,6 +1211,26 @@ def run_demo(
                             scan_radius_m=LIVE_ROUTING_SCAN_RADIUS_M,
                         )
                         last_hazard_scan_s = elapsed_s
+                        if rescue_assignment == "complete":
+                            search_result, rescue_preflight = _rescue_preflight(
+                                graph,
+                                physical_team,
+                                search_result,
+                                robot_positions,
+                                plan.footprint,
+                                mission_horizon_s - elapsed_s - 2,
+                            )
+                            stage.search_result = search_result
+                            for index, bid in enumerate(rescue_preflight.selected):
+                                rescue_exit_targets[index] = graph.world_positions()[
+                                    bid.escort[-1]
+                                ].copy()
+                            print(
+                                "[rescue] complete-rescue preflight: "
+                                f"{len(rescue_preflight.bids)} candidate bids; "
+                                f"{rescue_preflight.rejected_pairs} rejected pairs; "
+                                "private frozen-belief model"
+                            )
                     for index, member in enumerate(swarm.members):
                         surface_position = np.asarray(
                             data.xpos[member.body_id], dtype=np.float64
@@ -1508,19 +1592,16 @@ def run_demo(
                                 )
                                 terminal_homing_plans += 1
                             continue
-                        if evacuation.owner[patient] < 0:
-                            try:
-                                evacuation.begin(
-                                    data, patient, index, surface, elapsed_s
-                                )
-                            except ValueError:
-                                continue
                         try:
                             target, baseline = exterior_route(
                                 graph,
                                 surface,
                                 plan.footprint,
-                                preferred=start_positions[index],
+                                preferred=(
+                                    rescue_exit_targets[index]
+                                    if rescue_assignment == "complete"
+                                    else start_positions[index]
+                                ),
                             )
                         except NoEvacuationRouteError:
                             blocked_return_epoch[index] = physical_team.map_epoch
@@ -1549,10 +1630,22 @@ def run_demo(
                             blocked_return_epoch[index] = physical_team.map_epoch
                             blocked_evacuation_plans += 1
                             continue
-                        if not route.converged:
+                        if (
+                            not route.converged
+                            or route.modeled_deadline_feasible is False
+                        ):
                             blocked_return_epoch[index] = physical_team.map_epoch
                             blocked_evacuation_plans += 1
                             continue
+                        # Commit custody only after a current-geometry exit plan
+                        # exists. No physical time elapses during this check.
+                        if evacuation.owner[patient] < 0:
+                            try:
+                                evacuation.begin(
+                                    data, patient, index, surface, elapsed_s
+                                )
+                            except ValueError:
+                                continue
                         escort_patients[index] = patient
                         search_targets[index] = target
                         swarm.reroute(
@@ -1710,6 +1803,27 @@ def run_demo(
         terminal_homing_plans=terminal_homing_plans,
         blocked_evacuation_plans=blocked_evacuation_plans,
         mission_horizon_s=mission_horizon_s,
+        rescue_assignment_method=rescue_assignment,
+        rescue_preflight_model=(
+            rescue_preflight.certificate_model if rescue_preflight else None
+        ),
+        rescue_preflight_pairs=len(rescue_preflight.bids) if rescue_preflight else 0,
+        rescue_preflight_rejected_pairs=(
+            rescue_preflight.rejected_pairs if rescue_preflight else 0
+        ),
+        rescue_preflight_robot_bounds=tuple(
+            bid.robot_bound for bid in rescue_preflight.selected
+        ) if rescue_preflight else (),
+        rescue_preflight_survivor_bounds=tuple(
+            bid.survivor_bound for bid in rescue_preflight.selected
+        ) if rescue_preflight else (),
+        rescue_preflight_latest_completion_s=tuple(
+            bid.latest_completion_s for bid in rescue_preflight.selected
+        ) if rescue_preflight else (),
+        rescue_preflight_exit_positions_m=tuple(
+            tuple(map(float, point)) for point in rescue_exit_targets
+        ) if rescue_preflight else (),
+        rescue_exit_checked_before_contact=evacuate,
         failed_members=tuple(sorted(thermal_failed)),
         robot_progress=tuple(member.progress for member in swarm.members),
         robot_displacement_m=tuple(
@@ -2808,6 +2922,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--mission-horizon-s", type=float)
     parser.add_argument(
+        "--rescue-assignment", choices=("distance", "complete"), default="distance",
+        help="assign using complete approach/wait/escort bids in a private "
+        "frozen-belief model; requires --evacuate",
+    )
+    parser.add_argument(
         "--firmware-robots",
         type=int,
         default=0,
@@ -2922,6 +3041,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--distributed requires --live-disaster")
     if args.evacuate and not args.distributed:
         parser.error("--evacuate requires --distributed and --live-disaster")
+    if args.rescue_assignment == "complete" and not args.evacuate:
+        parser.error("--rescue-assignment complete requires --evacuate")
     if args.mission_horizon_s is not None and (
         not np.isfinite(args.mission_horizon_s)
         or not 48 <= args.mission_horizon_s <= 600
@@ -3027,6 +3148,7 @@ def main(argv: list[str] | None = None) -> int:
             routing_backends=backends,
             evacuate=args.evacuate,
             mission_horizon_s=args.mission_horizon_s,
+            rescue_assignment=args.rescue_assignment,
         )
     if (
         args.firmware_robots
@@ -3068,6 +3190,10 @@ def main(argv: list[str] | None = None) -> int:
                     "localization_assignment_transport_modeled": False,
                     "localization_anchor_prior_transport_modeled": False,
                     "physical_survivor_evacuation": args.evacuate,
+                    "preflight_certificate_is_physical_dose_guarantee": False,
+                    "preflight_checks_assignment_candidates": (
+                        args.rescue_assignment == "complete"
+                    ),
                     "rescue_acceptance_gate_met": args.evacuate and result.accepted,
                     "survivor_physiology_calibrated": False,
                     "embedded_timing_calibrated": False,

@@ -1,0 +1,189 @@
+{
+  "exhaustive": {
+    "coefficient_tick_cases": 729,
+    "integer_domain": {
+      "bound": 2,
+      "dimension": 3,
+      "distinct_packed_summaries": 27,
+      "distinct_vectors": 27,
+      "distinction_violations": 0,
+      "fixed_length_bits": 5,
+      "pair_checks": 351
+    },
+    "pointwise_dominance_violations": 0,
+    "support_max_abs_error": 0.0
+  },
+  "protocol": {
+    "agents": [
+      "robot",
+      "survivor"
+    ],
+    "base_quantum": 0.01,
+    "coefficient_quantum": 0.05,
+    "design": "oracle-derived synthetic acceptance sweep; no heldout improvement claim; start/victim/exit fixed per system",
+    "dt": 0.25,
+    "graph": "complete, synthetic",
+    "information_bound_domain": "all integer q in {0,...,B}^m and unrestricted nonnegative additive continuations; fixed threshold B",
+    "limits": "per-agent 0.6 quantile across paired schedules in each system",
+    "model": "h[k]=A^k B theta+base[k]",
+    "random_regimes": [
+      "transport/decay",
+      "monotone growth"
+    ],
+    "selection": "minimum completion tick among accepted schedules",
+    "snapshot": "freezes source field at k=0; keeps deterministic base",
+    "source_set": "theta>=0, sum(theta)<=M; one fixed theta per mission",
+    "version": 1
+  },
+  "random": {
+    "agent_doses": 3200,
+    "forward_vertex_trajectories": 6400,
+    "max_abs_error": 1.7763568394002505e-15,
+    "max_pointwise_to_exact_ratio": 2.0646200497727247,
+    "max_quantization_upper_error": 0.10432515534643816,
+    "oracle_feasible_schedules": 947,
+    "pointwise_dominance_violations": 0,
+    "quantization_bound_violations": 0,
+    "rejection_tradeoff": {
+      "current_snapshot": {
+        "accepted": 911,
+        "feasible_rejections": 241,
+        "selected_systems": 186,
+        "unsafe_accepts": 205,
+        "unsafe_selected": 1
+      },
+      "fixed_source": {
+        "accepted": 947,
+        "feasible_rejections": 0,
+        "selected_systems": 200,
+        "unsafe_accepts": 0,
+        "unsafe_selected": 0
+      },
+      "pointwise_reset": {
+        "accepted": 674,
+        "feasible_rejections": 273,
+        "selected_systems": 189,
+        "unsafe_accepts": 0,
+        "unsafe_selected": 0
+      },
+      "quantized_upper": {
+        "accepted": 663,
+        "feasible_rejections": 284,
+        "selected_systems": 196,
+        "unsafe_accepts": 0,
+        "unsafe_selected": 0
+      }
+    },
+    "schedules": 1600,
+    "systems": 200
+  },
+  "scope": "Synthetic positive linear fields; no calibrated smoke, clinical, physical rank lower-bound, production-integration, or novelty claim.",
+  "seed": 20261016,
+  "source_sha256": {
+    "eval/source_budget_rescue.py": "1006248aeead57799977a70b4ddd1b018a318109d688f292977ef9a5455e41b5",
+    "tests/test_source_budget_rescue.py": "4fce952e14f4ea2b7eb7bc067db215fba49844bd44fa40158e08592b76a7138f"
+  },
+  "witnesses": {
+    "nonmonotone_delay": {
+      "approach": [
+        5,
+        0
+      ],
+      "approach_ticks": 1,
+      "delays": [
+        0,
+        1,
+        2
+      ],
+      "escort": [
+        0,
+        1,
+        5
+      ],
+      "escort_ticks": 1,
+      "feasible": [
+        true,
+        false,
+        true
+      ],
+      "source_node": 4,
+      "survivor_doses": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "threshold": 0.5,
+      "transition_nonzero_edges": [
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          3,
+          4
+        ]
+      ]
+    },
+    "pointwise_gap": {
+      "fixed_source_accepts": true,
+      "fixed_source_worst_case": 1,
+      "pointwise_accepts": false,
+      "pointwise_reset": 2,
+      "threshold": 1,
+      "tick_coefficients": [
+        [
+          1,
+          0
+        ],
+        [
+          0,
+          1
+        ]
+      ]
+    },
+    "scalar_noncomposability": {
+      "complete_maxima": [
+        2,
+        1
+      ],
+      "continuation": [
+        1,
+        0
+      ],
+      "prefix_maxima": [
+        1,
+        1
+      ],
+      "q": [
+        1,
+        0
+      ],
+      "q_prime": [
+        0,
+        1
+      ]
+    },
+    "snapshot_unsafe": {
+      "horizon": 3,
+      "snapshot": 3.0,
+      "threshold": 4,
+      "transition": [
+        [
+          2
+        ]
+      ],
+      "worst_case": 7.0
+    },
+    "waiting_exposure": {
+      "completion_tick": 6,
+      "pickup_tick": 3,
+      "robot_dose": 3.0,
+      "survivor_dose": 6.0,
+      "survivor_dose_if_waiting_omitted": 3
+    }
+  }
+}

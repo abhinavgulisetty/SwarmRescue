@@ -1,0 +1,57 @@
+{
+  "status": "passed",
+  "tests": {
+    "tests": 872,
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0,
+    "arm_toolchain_enabled": true,
+    "xml_sha256": "dbb1329f3ff02bb219ee3eb94e2b84d91e0bf2ac870b248d98e2f987b0546259"
+  },
+  "ruff_entire_active_tree": "passed",
+  "dependency_audit": {
+    "retained_python_files_parsed": 167,
+    "missing_local_imports": 0,
+    "cli_module_targets_present": 15,
+    "required_package_assets_present": true
+  },
+  "preserved_evidence_files": 38,
+  "preserved_runtime_and_source_assets": 120,
+  "all_preserved_hashes_match": true,
+  "historical_release_receipts_unchanged": true,
+  "certificate_reproduction": {
+    "schema_version": 1,
+    "all_nontiming_result_fields_identical": true,
+    "protocol_identical": true,
+    "protocol_sha256": "d7595401064ad8b0937f5b095e1b879575cb3045fc642f445e26e28efd75a84b",
+    "exact_integer_cases": 288,
+    "integer_exact_mismatches": 0,
+    "scenario_timing_replays": 5352,
+    "all_selected_replays_within_budgets": true,
+    "source_results_sha256": "9e14cfcde86c415e7a8993f0915515a854ff8be24b0755c5be9c169d5e2f2a47",
+    "reproduced_results_sha256": "030d0c247d66e4fff0e5d3edf75b3a682c5cc4d9d076196cdf76cb5938267534"
+  },
+  "installed_deployment_doctor": {
+    "ready": true,
+    "package_version": "0.7.0",
+    "executed_outside_checkout": true,
+    "checks_passed": [
+      "python",
+      "firmware-assets",
+      "native-routing",
+      "mujoco"
+    ]
+  },
+  "release_archive_all_55_payload_checksums_passed": true,
+  "all_215_relocated_roots_present_in_recovery": true,
+  "note": "The original 933-test release receipt remains immutable. 872 tests are retained in the cleaned checkout; obsolete experimental tests were moved with their implementations.",
+  "documentation": {
+    "local_links_checked": 53,
+    "broken_links": 0,
+    "refreshed": [
+      "README.md",
+      "docs/architecture.md",
+      "firmware/README.md"
+    ]
+  }
+}

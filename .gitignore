@@ -12,6 +12,7 @@ dist/
 *.egg-info/
 .eggs/
 .venv/
+.pptx_deps/
 venv/
 env/
 
@@ -60,3 +61,6 @@ renders/
 # --- OS ---
 .DS_Store
 Thumbs.db
+
+# --- Simulator logs ---
+MUJOCO_LOG.TXT

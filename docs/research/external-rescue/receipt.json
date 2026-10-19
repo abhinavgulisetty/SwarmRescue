@@ -1,0 +1,338 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/TihanyiD/multi_alloc",
+  "commit": "ddce51c4dc8c067d350ee89bbf41cea76b401f47",
+  "commit_url": "https://github.com/TihanyiD/multi_alloc/commit/ddce51c4dc8c067d350ee89bbf41cea76b401f47",
+  "harness": {
+    "path": "/home/zypher/Music/pjt1/SwarmRescue/eval/external_rescue_reference.py",
+    "sha256": "bb7f14ecd6a6769674fdb5c7a4eabf52557ba5d8a2a362d28a430b35874d0d1b",
+    "unchanged_during_execution": true
+  },
+  "license": "No LICENSE or license declaration found in the original repository; source was downloaded separately, not vendored.",
+  "external_source_path": "/tmp/swarmrescue-tihanyi-original",
+  "source_manifest_sha256": {
+    "docs/multi_robot_task_allocation_for_safe_planning_under_dynamic_uncertainties_arxiv_paper.pdf": "8d3360f6c82cae5406076feba1c138b1b61d2c660ce9fa9a555e8080c362bfca",
+    "docs/readme.md": "6be89dceddfd736c91887c99a6a8dd60a805e2fa33088a51103e09036ab06f45",
+    "readme.md": "9348e30d0904b0080c1529ab4ec56ed7cf1669fcd4c0cf820148e18a110d22bc",
+    "two_stage_framework/two_stage_framework_case_studies/Allocation.py": "97cf3e9406e30a4aee156213aec7a678fa0803e94137352a286698ff14463cd6",
+    "two_stage_framework/two_stage_framework_case_studies/Allocator_Solution.py": "1714adea4eb55950cc39fa046c280c9ed8433c52985384aa07af8f102d200d8f",
+    "two_stage_framework/two_stage_framework_case_studies/Brute_Force_Allocator.py": "4d862d5c6b440cb078a235187012b45c3a9e773f5aa4f2aa77b6f0e6beb78db5",
+    "two_stage_framework/two_stage_framework_case_studies/DMatrix.py": "e40da79f6a971063c48fe4e4717e8996fb264060fb6db29745b23c2c85b5fa50",
+    "two_stage_framework/two_stage_framework_case_studies/Drawer.py": "ccefeb25a9935f60aa9a6357628e84c7af1ccbff822f55baf2819c34629ef018",
+    "two_stage_framework/two_stage_framework_case_studies/Forward_Greedy_Allocator.py": "fd7b84ffefcbb3c3a79ea0c40d654eb4a3f7333d8368365b9eef311ae89d6286",
+    "two_stage_framework/two_stage_framework_case_studies/Function_Frame.py": "53eff067913810694719f2a362ec48754586b4aa020b089e1d6675f433cf35aa",
+    "two_stage_framework/two_stage_framework_case_studies/Greedy_Allocator.py": "fff1eabb722c96124788efec057d6fffd68cd2204e182d1610927e30aeaba175",
+    "two_stage_framework/two_stage_framework_case_studies/Hazard.py": "8362aba025d9bcd2286865b4f86d3a9080ded3ef5c7cdb4d724f7bd35645ea5a",
+    "two_stage_framework/two_stage_framework_case_studies/Instrument.py": "ecca42098c88af4fc5cea52488072e606f5b91af5cf2263479c69f96c6a23b6c",
+    "two_stage_framework/two_stage_framework_case_studies/Matrix.py": "515360daef01807444e37e15e2be401346c24d99b70e57df382dea0e226f2232",
+    "two_stage_framework/two_stage_framework_case_studies/Parameters.py": "421cc478c8ab972d24005eadd59964b58825067aedc705579aeca7686df22759",
+    "two_stage_framework/two_stage_framework_case_studies/Path_Planner.py": "c3c16f6a609a7a6f2e779c55e997c0c532a381a748bfc191a9cf5c4276ebaea0",
+    "two_stage_framework/two_stage_framework_case_studies/ProgressBar.py": "05081d72e251efeeece0b349620bce1bbbfe988a64499acfc28ad7f3ff48a33c",
+    "two_stage_framework/two_stage_framework_case_studies/QX_set.py": "b6cd470a1119042ffb248ef39994f3598596bb29db7210b810b0a399c3f55575",
+    "two_stage_framework/two_stage_framework_case_studies/Q_set.py": "f9641ba752368b66450ced3723db936758bb94b5bf6a21d07dffb7d752d73b96",
+    "two_stage_framework/two_stage_framework_case_studies/Reverse_Greedy_Allocator.py": "90df338fbdc868c2cf1c4210ae8b5f0ac9d223441a60ad49716b377b7f93636d",
+    "two_stage_framework/two_stage_framework_case_studies/Robot.py": "59719ff2e98f3fd222b297a8cbb23ce96b362454e0ba3c97ae6592c1e006da0e",
+    "two_stage_framework/two_stage_framework_case_studies/Robot_objective.py": "76e7ccc4459aa9b7bdd788ac7863b12764864c93bd284ed07e5ec6c3bfca4e4f",
+    "two_stage_framework/two_stage_framework_case_studies/S_set.py": "3660228f44e5d682edbaa26d76b452ab2fd47f62f72900473258a49999f2b9af",
+    "two_stage_framework/two_stage_framework_case_studies/Set.py": "1ad04a3dc546f132d82e11f81f4edf01be9a63491e49b0bc1c8842849388b6d6",
+    "two_stage_framework/two_stage_framework_case_studies/Task.py": "db08491867455571565028d15af9903ed3a90879beeda4a2c613f977e36fb823",
+    "two_stage_framework/two_stage_framework_case_studies/Task_Allocator.py": "597e2666d5b795dc374641ac99d34ee5b1b1d5f52ae8bca3379e52aff08a9807",
+    "two_stage_framework/two_stage_framework_case_studies/Tau_Q_matrix.py": "34abecbd028e2b38f67d0666cbce757b82f2f3c38137413bd012cae3091a8d77",
+    "two_stage_framework/two_stage_framework_case_studies/Tau_S_k_dmatrix.py": "e18e4591d1a0203bda71ee0dab11f2b7d350af6e28c0463e411c33b0d7cdbeb0",
+    "two_stage_framework/two_stage_framework_case_studies/Tau_X_dmatrix.py": "4c4c14c21f084c6c303fcb63c5a7750c38416530c059a686055a3aab92746bae",
+    "two_stage_framework/two_stage_framework_case_studies/U_x_function.py": "bd3c32da30b9f8f768c13f0cada592d5eed90f98e88c558ef8951f60834d00fd",
+    "two_stage_framework/two_stage_framework_case_studies/X_set.py": "4f6489c52ef0fbd69e8c05bd7843c745e3720602514da050c03b6e22962551e9",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/case_study_1/function_frame": "021b6d81cc794aadd60f6fc24edab9a3380856fc1361f81b8786302a713ad0c2",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/case_study_1/parameters": "4dd133fcd9401f9c8d52e1d721711743fb4301af4d634237806a6682d99750e4",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/case_study_1/samples": "6ce177f88fddc2aab478771ef8bbe081766f49e59cc58c89c4fdf9de6c69bdc0",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/case_study_1/solution_bf": "616e0e5a8c21a23dcd926630684ddcb4da22c9530760687d03c48a63bcc42a9b",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/case_study_1/solution_fg": "befce0978c34550d26f39e5f60551394100c5d40f723515ddae4cee623b53ff0",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/case_study_1/solution_rg": "86a6dfbe07010ecb9bf8c68c33d7612ec04219022fda31f6bbdba1befc1fc7b2",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/case_study_1/solution_worst": "5ffc68ac3474588b997b8a4c3ec4c67dc8aa8cebe6818bfe6deda3a4fb1e9dc2",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_2_1/function_frame": "c57557a85decf6e6a9a89ea173a5142cc848ace7a6a2b01d4039ed81073dab5e",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_2_1/parameters": "4f93b987547feb81639794c7b395306c2abbad16fcb8ca35eefd299a86341948",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_2_1/samples": "ba3e4e483b4e3a99af6ad27e2d168df4a21da5505782fd7f2c052ea9001df909",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_2_1/solution_bf": "0cbecfe8c2acb5debe54c35d72c327948bc49e13acdca7f072ffe4e4538fdd8e",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_2_1/solution_fg": "940628fee70f73562c95688d2dc3648a32902b33f5e3a48198556cddf955c805",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_2_1/solution_rg": "4bd388e233c3e3d38278fa8a655ce625221d06f639df747fc56f306bf5b1caf0",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_2_1/solution_worst": "38a065f11653e3853d6d9d4b205cc39985cc638e5bec5313ecd40291cc33b10e",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_2_2/function_frame": "72139b51081440587be92ef6a3f4b5f1691473caf6e173056cef4fcecb32476a",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_2_2/parameters": "47c49fa320a30303de9e5be958b0c350aac777bb5f0378266a54c24c014ae7f8",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_2_2/samples": "4de7b3545ca775ccbdfd0210726526dd66d04c80adf75387e01ad88dd4a8783d",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_2_2/solution_bf": "b6b7f98d763bcde64140eb35be334eb9ad85553eaec448370068e09f34ceaffe",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_2_2/solution_fg": "e293e132edde83d601f3903b8fbab685b757d79b0eb06ce32fea9817dfacf7ea",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_2_2/solution_rg": "fad3eee6f14fbaf909611feed1e097a26a81fa973d052cfe6f561585617d4ed7",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_2_2/solution_worst": "7cf49700549ad86452a16cc63b6bf758121e9c8106d43db29dc812da48c18db8",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_3_1/function_frame": "ed6a86a94b9cb32f870045d0c13bf503383e0746758fa81f3beb2c2742ec18a6",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_3_1/parameters": "f4e65063052b166e86f8a07a96ee982e1cef6e96aa8b8e02b4a47b33bb91336c",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_3_1/samples": "2c7b09df27c3817e3cc6d69af32118722a0d429f29d4d2c41d341688072c8692",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_3_1/solution_bf": "0992f95783b467e9f8fcfcc7f509f2b05bca7d70e37e41bd6d7b57aa5becb4f4",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_3_1/solution_fg": "78491eb83523b4482751dd1b028d9a362365ff83a2e698cac7d6b2e064c9e3d4",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_3_1/solution_rg": "4c9ef420d6f24f47b0e4bf8188ce047dd4c4c5219408bbecf49852cc7c38e657",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_3_1/solution_worst": "3dceabe1685161f418b21927c7ddf05f9a9dddba6c4f994f331fc335eedb093b",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_3_2/function_frame": "2088f27f4d83644ecc5d58b184cc3e54da7609248288aae7c0c2b7f837775503",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_3_2/parameters": "611b80487b8e2052e264fb0034c46dc3e9ffa7c7adcf2c474723bd3f90fcff79",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_3_2/samples": "c7a8ee803607d9577036acc8ea0cda9f40693bac1bf8b2aad98a2022daa78273",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_3_2/solution_bf": "cfc41334ee462e38a8343c1184977766cbd29036165ccda2ddde08dee2c776ff",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_3_2/solution_fg": "5cc3fe98629404cb940ca0b9bdb27242eb1d948fbeb95a71b9b2a482944985ee",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_3_2/solution_rg": "e32af5e011aa48cf7da0db101c32c70750c051d7d8e8cbd263167ff66ddb982c",
+    "two_stage_framework/two_stage_framework_case_studies/case_studies/example_3_2/solution_worst": "e51e881f3cfbce79ae5dcdbef473c93e28155aafe7d392eb75b793cfc224f631",
+    "two_stage_framework/two_stage_framework_case_studies/p_H_k_matrix.py": "ec4ae800056e8710f110d84ae8caa5a902619137baaf4ab78d252d86ad83b3a3",
+    "two_stage_framework/two_stage_framework_case_studies/two_stage_framework.py": "345abf77b824f98135bf5e61adfa92c4a7f6f88cf08ccdf712297546dd892339",
+    "two_stage_framework/two_stage_framework_case_studies/y_sampler.py": "137a31f86dd46e89e3dc2ee7e9310dd3cef6aa2a78092c7cf2b38bee9e0cb817",
+    "two_stage_framework/two_stage_framework_random_maps/Allocation.py": "97cf3e9406e30a4aee156213aec7a678fa0803e94137352a286698ff14463cd6",
+    "two_stage_framework/two_stage_framework_random_maps/Allocator_Solution.py": "1714adea4eb55950cc39fa046c280c9ed8433c52985384aa07af8f102d200d8f",
+    "two_stage_framework/two_stage_framework_random_maps/Brute_Force_Allocator.py": "4d862d5c6b440cb078a235187012b45c3a9e773f5aa4f2aa77b6f0e6beb78db5",
+    "two_stage_framework/two_stage_framework_random_maps/DMatrix.py": "e40da79f6a971063c48fe4e4717e8996fb264060fb6db29745b23c2c85b5fa50",
+    "two_stage_framework/two_stage_framework_random_maps/Drawer.py": "94e10cc4538a43c405e400f2fc313cf64ff83edc5d9daedf673172f839dac99c",
+    "two_stage_framework/two_stage_framework_random_maps/Forward_Greedy_Allocator.py": "fd7b84ffefcbb3c3a79ea0c40d654eb4a3f7333d8368365b9eef311ae89d6286",
+    "two_stage_framework/two_stage_framework_random_maps/Function_Frame.py": "53eff067913810694719f2a362ec48754586b4aa020b089e1d6675f433cf35aa",
+    "two_stage_framework/two_stage_framework_random_maps/Greedy_Allocator.py": "fff1eabb722c96124788efec057d6fffd68cd2204e182d1610927e30aeaba175",
+    "two_stage_framework/two_stage_framework_random_maps/Hazard.py": "8362aba025d9bcd2286865b4f86d3a9080ded3ef5c7cdb4d724f7bd35645ea5a",
+    "two_stage_framework/two_stage_framework_random_maps/Instrument.py": "ecca42098c88af4fc5cea52488072e606f5b91af5cf2263479c69f96c6a23b6c",
+    "two_stage_framework/two_stage_framework_random_maps/Matrix.py": "515360daef01807444e37e15e2be401346c24d99b70e57df382dea0e226f2232",
+    "two_stage_framework/two_stage_framework_random_maps/Parameters.py": "421cc478c8ab972d24005eadd59964b58825067aedc705579aeca7686df22759",
+    "two_stage_framework/two_stage_framework_random_maps/Path_Planner.py": "a3ca65396d9dc577db7a72152f002489dd3cf3f77e951874b6c45089b85773b2",
+    "two_stage_framework/two_stage_framework_random_maps/ProgressBar.py": "05081d72e251efeeece0b349620bce1bbbfe988a64499acfc28ad7f3ff48a33c",
+    "two_stage_framework/two_stage_framework_random_maps/QX_set.py": "b6cd470a1119042ffb248ef39994f3598596bb29db7210b810b0a399c3f55575",
+    "two_stage_framework/two_stage_framework_random_maps/Q_set.py": "f9641ba752368b66450ced3723db936758bb94b5bf6a21d07dffb7d752d73b96",
+    "two_stage_framework/two_stage_framework_random_maps/Reverse_Greedy_Allocator.py": "90df338fbdc868c2cf1c4210ae8b5f0ac9d223441a60ad49716b377b7f93636d",
+    "two_stage_framework/two_stage_framework_random_maps/Robot.py": "59719ff2e98f3fd222b297a8cbb23ce96b362454e0ba3c97ae6592c1e006da0e",
+    "two_stage_framework/two_stage_framework_random_maps/Robot_objective.py": "76e7ccc4459aa9b7bdd788ac7863b12764864c93bd284ed07e5ec6c3bfca4e4f",
+    "two_stage_framework/two_stage_framework_random_maps/S_set.py": "3660228f44e5d682edbaa26d76b452ab2fd47f62f72900473258a49999f2b9af",
+    "two_stage_framework/two_stage_framework_random_maps/Set.py": "1ad04a3dc546f132d82e11f81f4edf01be9a63491e49b0bc1c8842849388b6d6",
+    "two_stage_framework/two_stage_framework_random_maps/Task.py": "db08491867455571565028d15af9903ed3a90879beeda4a2c613f977e36fb823",
+    "two_stage_framework/two_stage_framework_random_maps/Task_Allocator.py": "597e2666d5b795dc374641ac99d34ee5b1b1d5f52ae8bca3379e52aff08a9807",
+    "two_stage_framework/two_stage_framework_random_maps/Tau_Q_matrix.py": "34abecbd028e2b38f67d0666cbce757b82f2f3c38137413bd012cae3091a8d77",
+    "two_stage_framework/two_stage_framework_random_maps/Tau_S_k_dmatrix.py": "e18e4591d1a0203bda71ee0dab11f2b7d350af6e28c0463e411c33b0d7cdbeb0",
+    "two_stage_framework/two_stage_framework_random_maps/Tau_X_dmatrix.py": "4c4c14c21f084c6c303fcb63c5a7750c38416530c059a686055a3aab92746bae",
+    "two_stage_framework/two_stage_framework_random_maps/U_x_function.py": "bd3c32da30b9f8f768c13f0cada592d5eed90f98e88c558ef8951f60834d00fd",
+    "two_stage_framework/two_stage_framework_random_maps/X_set.py": "4f6489c52ef0fbd69e8c05bd7843c745e3720602514da050c03b6e22962551e9",
+    "two_stage_framework/two_stage_framework_random_maps/p_H_k_matrix.py": "ec4ae800056e8710f110d84ae8caa5a902619137baaf4ab78d252d86ad83b3a3",
+    "two_stage_framework/two_stage_framework_random_maps/two_stage_framework.py": "6428627754cf28b82d84230933b2fe984b562f1d01c8a6f00e3a84cedf0e6094",
+    "two_stage_framework/two_stage_framework_random_maps/y_sampler.py": "366b53f6b671e4061041c7d1674dbac6adc48ec88fc884b0cc72b76357061163"
+  },
+  "tracked_source_and_supplied_data_unchanged": true,
+  "runtime": {
+    "python": "3.12.13",
+    "numpy": "1.26.4",
+    "pandas": "2.2.3",
+    "matplotlib": "3.9.4",
+    "platform": "Linux-7.0.0-38-generic-x86_64-with-glibc2.43",
+    "blas_threads": "1"
+  },
+  "problem": {
+    "case": "case_study_1",
+    "map_shape": [
+      13,
+      17
+    ],
+    "robots": 3,
+    "targets": 5,
+    "hazard_samples": 5000,
+    "time_states": 75,
+    "objective_table_shape": [
+      3,
+      32
+    ]
+  },
+  "original_entrypoint": {
+    "source_modified": false,
+    "measured_wall_seconds": 0.808885262998956,
+    "result_kind": "unchanged author entrypoint replaying supplied samples, objective table and saved solutions",
+    "results": {
+      "forward": {
+        "algorithm": "Forward_Greedy",
+        "objective": {
+          "multiplicative": 0.6987007497806219,
+          "group": 0.7422
+        },
+        "allocation": {
+          "robot_1": [
+            "task_i",
+            "task_ii",
+            "task_iii"
+          ],
+          "robot_2": [
+            "task_iv"
+          ],
+          "robot_3": [
+            "task_v"
+          ]
+        },
+        "author_accounting_time_data_not_measured_wall_seconds": {
+          "setup_time": 54.4562087059021,
+          "calculation_time": 370.41495418548584
+        },
+        "alpha_G": 0.9888145691659612,
+        "gamma_G": 0.652910804771197
+      },
+      "reverse": {
+        "algorithm": "Reverse_Greedy",
+        "objective": {
+          "multiplicative": 0.7166217852020254,
+          "group": 0.758
+        },
+        "allocation": {
+          "robot_1": [
+            "task_ii",
+            "task_iii"
+          ],
+          "robot_2": [
+            "task_i",
+            "task_iv"
+          ],
+          "robot_3": [
+            "task_v"
+          ]
+        },
+        "author_accounting_time_data_not_measured_wall_seconds": {
+          "setup_time": 715.6255950927734,
+          "calculation_time": 1024.223639011383
+        },
+        "alpha_G": 0.4829703099125138,
+        "gamma_G": 0.5247434604337834
+      },
+      "brute_force_best": {
+        "algorithm": "Brute_Force",
+        "objective": {
+          "multiplicative": 0.7166217852020254,
+          "group": 0.758
+        },
+        "allocation": {
+          "robot_1": [
+            "task_ii",
+            "task_iii"
+          ],
+          "robot_2": [
+            "task_i",
+            "task_iv"
+          ],
+          "robot_3": [
+            "task_v"
+          ]
+        },
+        "author_accounting_time_data_not_measured_wall_seconds": {
+          "calculation_time": 17598.59931731224
+        }
+      },
+      "brute_force_worst": {
+        "algorithm": "Brute_Force",
+        "objective": {
+          "multiplicative": 0.2829263559597008,
+          "group": 0.4146
+        },
+        "allocation": {
+          "robot_1": [
+            "task_i",
+            "task_ii",
+            "task_iv",
+            "task_v"
+          ],
+          "robot_2": [
+            "task_iii"
+          ],
+          "robot_3": []
+        },
+        "author_accounting_time_data_not_measured_wall_seconds": {
+          "calculation_time": 17598.59931731224
+        }
+      }
+    }
+  },
+  "fresh_original_solvers": {
+    "result_kind": "original author allocation methods executed afresh on author-supplied cached DP objective table",
+    "fresh_low_level_policies": true,
+    "curvature_diagnostics_recomputed": false,
+    "hazard_samples_regenerated": false,
+    "full_objective_table_regenerated": false,
+    "results": {
+      "forward": {
+        "algorithm": "Forward_Greedy",
+        "objective": {
+          "multiplicative": 0.6987007497806219,
+          "group": 0.7422
+        },
+        "allocation": {
+          "robot_1": [
+            "task_i",
+            "task_ii",
+            "task_iii"
+          ],
+          "robot_2": [
+            "task_iv"
+          ],
+          "robot_3": [
+            "task_v"
+          ]
+        },
+        "author_accounting_time_data_not_measured_wall_seconds": {
+          "setup_time": 54.45623588562012,
+          "calculation_time": 370.40847611427307
+        },
+        "measured_allocation_wall_seconds": 0.0006944289998500608,
+        "measured_policy_and_sample_replay_wall_seconds": 52.49690730099974,
+        "same_allocation_as_supplied_result": true,
+        "multiplicative_abs_error_vs_supplied_result": 0.0
+      },
+      "reverse": {
+        "algorithm": "Reverse_Greedy",
+        "objective": {
+          "multiplicative": 0.7166217852020254,
+          "group": 0.758
+        },
+        "allocation": {
+          "robot_1": [
+            "task_ii",
+            "task_iii"
+          ],
+          "robot_2": [
+            "task_i",
+            "task_iv"
+          ],
+          "robot_3": [
+            "task_v"
+          ]
+        },
+        "author_accounting_time_data_not_measured_wall_seconds": {
+          "setup_time": 715.6246268749237,
+          "calculation_time": 1024.2116739749908
+        },
+        "measured_allocation_wall_seconds": 0.0013184460003685672,
+        "measured_policy_and_sample_replay_wall_seconds": 55.050115621997975,
+        "same_allocation_as_supplied_result": true,
+        "multiplicative_abs_error_vs_supplied_result": 0.0
+      },
+      "brute_force": {
+        "algorithm": "Brute_Force",
+        "objective": 0.7166217852020254,
+        "allocation": {
+          "robot_1": [
+            "task_ii",
+            "task_iii"
+          ],
+          "robot_2": [
+            "task_i",
+            "task_iv"
+          ],
+          "robot_3": [
+            "task_v"
+          ]
+        },
+        "author_accounting_time_data_not_measured_wall_seconds": {
+          "calculation_time": 17598.52564573288
+        },
+        "measured_allocation_wall_seconds": 0.004400098001497099,
+        "measured_policy_and_sample_replay_wall_seconds": null,
+        "same_allocation_as_supplied_result": true,
+        "multiplicative_abs_error_vs_supplied_result": 0.0
+      }
+    }
+  },
+  "limits": [
+    "Targets are visited and robots exit; no survivor waiting, pickup, human escort, radio blackout, or exposure-dose extension is included.",
+    "Empirical group objectives use the author's same supplied 5000 hazard samples; they are replay values, not independent held-out estimates.",
+    "Original source timing fields include supplied historic function evaluation times and must not be used as present measured runtime.",
+    "No comparison against the proposed common-source certificate or the production MuJoCo controller is established by this receipt."
+  ]
+}

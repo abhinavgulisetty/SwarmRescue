@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "target": "local-simulator-and-cortex-m4",
+  "ready": true,
+  "status": "ready",
+  "workflow": "search-contact-evacuation",
+  "rescue_assignment": "complete",
+  "package_version": "0.7.0",
+  "wheel": "/home/zypher/Music/pjt1/SwarmRescue/outputs/releases/0.7.0/swarmrescue-0.7.0-py3-none-any.whl",
+  "wheel_sha256": "fd814bf17c2c3465d34d43d21dd7b68997041611771d4e2e921f29cae7944529",
+  "installed_source_fingerprint": "105d9a17ef9d6bfd09c83edbf6c2db53ad1990d639722c7838defa2832237c3d",
+  "runtime_lock_sha256": "63521e8f6572f65c931e09f7f9ce0d0c83e52bc384c2b48767dc830335dc13ba",
+  "prefix": "/home/zypher/Music/pjt1/SwarmRescue/outputs/deployment/complete-rescue-0.7.0",
+  "launcher": "/home/zypher/Music/pjt1/SwarmRescue/outputs/deployment/complete-rescue-0.7.0/run-mission",
+  "firmware": {
+    "executable": "/home/zypher/Music/pjt1/SwarmRescue/outputs/deployment/complete-rescue-0.7.0/firmware/runtime.elf",
+    "schema_version": 1,
+    "platform": "cortex-m4-qemu",
+    "max_nodes": 2048,
+    "max_edges": 8192,
+    "executable_sha256": "098a65c455f7c9d11b32b0ecb792d3d4f720f3fbfa1fca4a4fc944b9511d8222",
+    "compiler": "arm-none-eabi-gcc (15:14.2.rel1-1) 14.2.1 20241119",
+    "whole_robot_firmware": false,
+    "hardware_cycles_measured": false,
+    "routing_strategies": [
+      "jacobi",
+      "gauss_seidel",
+      "bound_jacobi",
+      "bound_ordered",
+      "prioritized",
+      "bound_prioritized",
+      "bound_diagonal",
+      "auto"
+    ],
+    "text_bytes": 24624,
+    "data_bytes": 0,
+    "bss_and_stack_bytes": 184336,
+    "kernel_service_ram_bytes": 184336,
+    "reserved_stack_bytes": 16384,
+    "startup_check": {
+      "passed": true,
+      "emulator": "QEMU emulator version 10.2.1 (Debian 1:10.2.1+ds-1ubuntu3.2)",
+      "strategy": "auto",
+      "sweeps": 2,
+      "requests": 1,
+      "image_sha256": "098a65c455f7c9d11b32b0ecb792d3d4f720f3fbfa1fca4a4fc944b9511d8222"
+    }
+  },
+  "whole_robot_firmware": false,
+  "physical_board_flashed": false,
+  "whole_project_acceptance_gate_met": false
+}

@@ -1,0 +1,17 @@
+# Keep checked source stable across checkout platforms.
+*.py text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.svg text eol=lf
+
+# Frozen evidence is byte-identified; do not normalize its contents.
+docs/research/** -text
+docs/releases/*.json -text
+outputs/releases/** -text
+outputs/verification/** -text
+*.whl binary
+*.tar.gz binary
+
+# Raw upstream console captures retain their original table spacing.
+docs/research/external-rescue/*.stdout.txt whitespace=-blank-at-eol,-blank-at-eof

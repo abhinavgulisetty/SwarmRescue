@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "contract": "physical-rescue-software-v1",
+  "accepted": true,
+  "runs": [
+    {
+      "seed": 19,
+      "robots": 8,
+      "accepted": true,
+      "issues": [],
+      "survivors_evacuated": 8,
+      "last_evacuation_s": 122.394,
+      "survivor_exposure_proxy": 76.82403677850493,
+      "firmware_requests": 0,
+      "report": "/home/zypher/Music/pjt1/SwarmRescue/outputs/releases/0.7.0/validation/seed19-complete-native.json",
+      "source_bundle_sha256": "eada81b9a036872698d6108796b127f0e1b2d49a49ec2beff801c48473d88a56"
+    },
+    {
+      "seed": 42,
+      "robots": 8,
+      "accepted": true,
+      "issues": [],
+      "survivors_evacuated": 8,
+      "last_evacuation_s": 82.928,
+      "survivor_exposure_proxy": 8.289298709202399,
+      "firmware_requests": 0,
+      "report": "/home/zypher/Music/pjt1/SwarmRescue/outputs/releases/0.7.0/validation/seed42-complete-native.json",
+      "source_bundle_sha256": "f5f94ffbe1eabbdb5c62ded3286938e40e7f9c176c242861f05e2548896f79df"
+    },
+    {
+      "seed": 42,
+      "robots": 8,
+      "accepted": true,
+      "issues": [],
+      "survivors_evacuated": 8,
+      "last_evacuation_s": 82.928,
+      "survivor_exposure_proxy": 8.289298709202399,
+      "firmware_requests": 26,
+      "report": "/home/zypher/Music/pjt1/SwarmRescue/outputs/releases/0.7.0/validation/seed42-complete-arm.json",
+      "source_bundle_sha256": "8863c9610d83976a4ea0bdfe72ac2f93e088a0aaba15819b7d125163b368df6a"
+    },
+    {
+      "seed": 7,
+      "robots": 4,
+      "accepted": true,
+      "issues": [],
+      "survivors_evacuated": 4,
+      "last_evacuation_s": 67.274,
+      "survivor_exposure_proxy": 64.10427553161027,
+      "firmware_requests": 0,
+      "report": "/home/zypher/Music/pjt1/SwarmRescue/outputs/releases/0.7.0/validation/seed7-complete-native.json",
+      "source_bundle_sha256": "638be6c3129d2f04b2bff6dd20c32fcc046e117036a6109c50d5acfb29940130"
+    },
+    {
+      "seed": 42,
+      "robots": 8,
+      "accepted": true,
+      "issues": [],
+      "survivors_evacuated": 8,
+      "last_evacuation_s": 81.396,
+      "survivor_exposure_proxy": 8.825713661088622,
+      "firmware_requests": 0,
+      "report": "/home/zypher/Music/pjt1/SwarmRescue/outputs/releases/0.7.0/validation/seed42-distance-native.json",
+      "source_bundle_sha256": "cc02862066d89c7a2de925a39348631e8c103986edc5b0badca523a498709a12"
+    }
+  ],
+  "source_fingerprints": [
+    "105d9a17ef9d6bfd09c83edbf6c2db53ad1990d639722c7838defa2832237c3d"
+  ],
+  "same_runtime_sources": true,
+  "physiology_calibrated": false,
+  "hardware_cycles_measured": false
+}

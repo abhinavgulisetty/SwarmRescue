@@ -1,0 +1,585 @@
+{
+  "schema_version": 1,
+  "metrics": {
+    "seed": 19,
+    "n_robots": 8,
+    "storeys_reached": [
+      0
+    ],
+    "planner_reachable": [
+      0
+    ],
+    "per_robot": [
+      [
+        "robot0",
+        0,
+        0,
+        "arrived"
+      ],
+      [
+        "robot1",
+        0,
+        0,
+        "arrived"
+      ],
+      [
+        "robot2",
+        0,
+        0,
+        "arrived"
+      ],
+      [
+        "robot3",
+        0,
+        0,
+        "arrived"
+      ],
+      [
+        "robot4",
+        0,
+        0,
+        "arrived"
+      ],
+      [
+        "robot5",
+        0,
+        0,
+        "arrived"
+      ],
+      [
+        "robot6",
+        0,
+        0,
+        "arrived"
+      ],
+      [
+        "robot7",
+        0,
+        0,
+        "arrived"
+      ]
+    ],
+    "steps": 61197,
+    "frames": 0,
+    "video": null,
+    "live_disaster": true,
+    "failed_members": [
+      "beam_s0_e21",
+      "beam_s0_e9",
+      "beam_s2_e9",
+      "col_s0_n13",
+      "slab_s2_b5_2",
+      "wall_s0_r13_x_36",
+      "wall_s0_r13_x_37",
+      "wall_s0_r13_y_35"
+    ],
+    "robot_progress": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "robot_displacement_m": [
+      0.0869661145063275,
+      0.09387880971796429,
+      15.987267301615013,
+      13.794214234641473,
+      16.950545044289328,
+      13.389108835100902,
+      17.842714672601037,
+      13.040030502584298
+    ],
+    "robot_interior_depth_m": [
+      -1.1695036093143756,
+      -1.6951112713082015,
+      -1.0440235795088,
+      -1.043557656179757,
+      -1.0308295391185072,
+      -1.0406596300214281,
+      -1.0388397433135996,
+      -1.0446842295545444
+    ],
+    "belief_reroutes": 8,
+    "collapse_replans": 8,
+    "collapse_retained": 0,
+    "routing_observed_nodes": 179,
+    "routing_sweeps": 513,
+    "routing_residual": 0.0,
+    "routing_converged": true,
+    "routing_cost_before": 1212.4533677503246,
+    "routing_cost_after": 188.8425329732987,
+    "robot_route_indices": [
+      135,
+      104,
+      66,
+      55,
+      35,
+      77,
+      46,
+      75
+    ],
+    "robot_positions_m": [
+      [
+        12.800283644066518,
+        11.169503609314376,
+        0.13998990373989076
+      ],
+      [
+        12.062568913504396,
+        11.695111271308201,
+        0.13998990373989076
+      ],
+      [
+        -1.0440235795088,
+        5.879092655630779,
+        0.13998990373989076
+      ],
+      [
+        -1.043557656179757,
+        5.878343096511963,
+        0.13998990373989073
+      ],
+      [
+        -1.0308295391185072,
+        5.87761754678027,
+        0.13998990373989076
+      ],
+      [
+        -1.0406596300214281,
+        5.878504404935083,
+        0.13998990373947443
+      ],
+      [
+        -1.0388397433135996,
+        5.87869156113943,
+        0.13998990373989073
+      ],
+      [
+        -1.0446842295545444,
+        5.878318470691565,
+        0.13998990373989076
+      ]
+    ],
+    "survivors_hidden": 8,
+    "survivors_localized": 8,
+    "max_localization_error_m": 0.8129973702628284,
+    "range_gbp": true,
+    "range_radio_enabled": true,
+    "range_radio_bytes": 4416,
+    "range_radio_rounds": 1,
+    "range_source_target": 3,
+    "range_coverage_target_met": true,
+    "range_receiver_factor_counts": [
+      64,
+      64,
+      64,
+      64,
+      64,
+      64,
+      64,
+      64
+    ],
+    "localization_team_numeric_bytes": 72736,
+    "range_gbp_converged": true,
+    "range_gbp_sweeps": 1160,
+    "range_gbp_linearizations": 5,
+    "localization_retained_numeric_bytes": 9088,
+    "autonomous_search": true,
+    "distributed_physical": true,
+    "radio_bytes": 36096,
+    "radio_deliveries": 3017,
+    "radio_below_sensitivity": 168,
+    "max_radio_wall_count": 5,
+    "geometry_revisions": 6,
+    "preserved_factors": 5290,
+    "peer_factors": 1120,
+    "numeric_arena_high_water_bytes": 164084,
+    "firmware_robots": 0,
+    "firmware_requests": 0,
+    "firmware_transport_bytes": 0,
+    "firmware_wall_time_s": 0,
+    "firmware_platform": null,
+    "firmware_service_ram_bytes": 0,
+    "firmware_image_sha256": null,
+    "firmware_emulator": null,
+    "analytical_deadline_misses": 0,
+    "repaired_spawns": 0,
+    "planning_height_limit_m": 1.0,
+    "physical_arrival_radius_m": 0.1,
+    "physical_deadline_interventions": 0,
+    "modeled_deadline_infeasible_plans": 0,
+    "region_cells": 4,
+    "planning_nodes": 567,
+    "refinement_peak_nodes": 607,
+    "refinement_expansions": 0,
+    "discarded_region_factors": 242,
+    "provenance_dropped_factors": 0,
+    "latest_source_cell_evidence": true,
+    "replaced_source_cell_factors": 1377,
+    "stale_source_cell_factors": 0,
+    "hazard_sensing_interval_s": 0.0,
+    "hazard_only_refreshes": 0,
+    "hazard_only_replans": 0,
+    "hazard_switch_min_gain": 0.15,
+    "hazard_switches_suppressed": 0,
+    "map_epoch": 6,
+    "rejected_map_epoch_packets": 0,
+    "rejected_map_epoch_factors": 0,
+    "robot_exposure_proxy": [
+      68.93968777333865,
+      43.70451791230999,
+      100.17050037178535,
+      71.27894413016368,
+      0.029496039692140586,
+      13.303201481758125,
+      0.212064220034351,
+      3.3551381915970695
+    ],
+    "robot_search_exposure_proxy": [
+      68.43533494293018,
+      43.039960676563545,
+      97.33477533626558,
+      70.71226711593653,
+      0.012125534635752798,
+      6.662160673286429,
+      0.06819912786768156,
+      1.3802790433836163
+    ],
+    "robot_arrival_time_s": [
+      20.546,
+      13.648,
+      74.352,
+      61.870000000000005,
+      55.958,
+      80.238,
+      57.644,
+      70.808
+    ],
+    "evacuation_enabled": true,
+    "survivor_dynamics": "upright_force_driven_capsule",
+    "survivors_contacted": 8,
+    "survivors_evacuated": 8,
+    "survivor_contact_time_s": [
+      70.9,
+      56.0,
+      13.700000000000001,
+      80.3,
+      61.9,
+      20.6,
+      74.4,
+      57.7
+    ],
+    "survivor_evacuation_time_s": [
+      108.548,
+      73.514,
+      50.922000000000004,
+      122.394,
+      90.15,
+      66.18,
+      109.828,
+      81.57600000000001
+    ],
+    "survivor_distance_m": [
+      18.077720106572624,
+      8.259516796857406,
+      16.6579547638222,
+      19.00317734761172,
+      13.227352245982699,
+      21.507304980462226,
+      16.10603705449574,
+      11.155847494307977
+    ],
+    "survivor_positions_m": [
+      [
+        -0.6559898481571054,
+        5.881630389620534,
+        -2.744749907565569e-08
+      ],
+      [
+        -0.656001418938696,
+        5.880342330869978,
+        -2.7447499072186243e-08
+      ],
+      [
+        -0.6581673022608285,
+        5.932456452772042,
+        -2.7447499072186243e-08
+      ],
+      [
+        -0.5004195488628813,
+        5.879969533190305,
+        -1.4429497650070289e-06
+      ],
+      [
+        -0.6563176227109366,
+        5.881711106903919,
+        -2.7447499079125137e-08
+      ],
+      [
+        -0.6561397266611522,
+        5.905036385374541,
+        -2.7447499072186243e-08
+      ],
+      [
+        -0.6559891148594197,
+        5.8824920230725155,
+        -2.7447499079125137e-08
+      ],
+      [
+        -0.656145405321805,
+        5.882071642913824,
+        -2.744749907565569e-08
+      ]
+    ],
+    "survivor_exposure_proxy": [
+      2.672860821976667,
+      0.07792528692613529,
+      1.9063496118013243,
+      42.59046437392875,
+      2.058368367464432,
+      0.5218603716033027,
+      25.959161954027813,
+      1.037045990776505
+    ],
+    "survivor_mass_kg": 55.0,
+    "survivor_sliding_friction": 0.08,
+    "survivor_height_m": 0.78,
+    "survivor_escort_robot": [
+      7,
+      4,
+      1,
+      5,
+      3,
+      0,
+      2,
+      6
+    ],
+    "evacuation_footprint_m": [
+      0.0,
+      0.0,
+      14.0,
+      10.0
+    ],
+    "escort_trail_high_water": 8,
+    "maximum_escort_gap_m": 0.7610840728117765,
+    "evacuation_plans": 8,
+    "terminal_homing_plans": 0,
+    "blocked_evacuation_plans": 0,
+    "mission_horizon_s": 180.0,
+    "rescue_assignment_method": "complete",
+    "rescue_preflight_model": "private-frozen-routing-cost",
+    "rescue_preflight_pairs": 188,
+    "rescue_preflight_rejected_pairs": 0,
+    "rescue_preflight_robot_bounds": [
+      48.704850558986124,
+      36.94613969154987,
+      173.96326896305777,
+      258.86989232888857,
+      254.61129968604004,
+      264.3645696847458,
+      263.7018975822502,
+      318.53078389446466
+    ],
+    "rescue_preflight_survivor_bounds": [
+      38.824798646085576,
+      36.91613969780836,
+      71.0794626700945,
+      69.18637712273207,
+      62.73626447285278,
+      62.88322420533911,
+      71.33503815784655,
+      98.34151334895722
+    ],
+    "rescue_preflight_latest_completion_s": [
+      148.5,
+      108.0,
+      110.0,
+      105.5,
+      96.5,
+      133.5,
+      110.0,
+      151.5
+    ],
+    "rescue_preflight_exit_positions_m": [
+      [
+        -1.125,
+        5.875,
+        0.0
+      ],
+      [
+        -1.125,
+        5.875,
+        0.0
+      ],
+      [
+        -1.125,
+        5.875,
+        0.0
+      ],
+      [
+        -1.125,
+        5.875,
+        0.0
+      ],
+      [
+        -1.125,
+        5.875,
+        0.0
+      ],
+      [
+        -1.125,
+        5.875,
+        0.0
+      ],
+      [
+        -1.125,
+        5.875,
+        0.0
+      ],
+      [
+        -1.125,
+        5.875,
+        0.0
+      ]
+    ],
+    "rescue_exit_checked_before_contact": true
+  },
+  "accepted": true,
+  "provenance": {
+    "schema_version": 3,
+    "created_at_utc": "2026-10-16T13:45:49.148855+00:00",
+    "seed": 19,
+    "git_sha": "unknown",
+    "git_dirty": false,
+    "dirty_diff_hash": null,
+    "lockfile_hash": "63521e8f6572f65c931e09f7f9ce0d0c83e52bc384c2b48767dc830335dc13ba",
+    "config_hash": "ecddd2508103c96b00928e2bf599a8bf0dd96a4ae9b79c46240f326e947e3e9e",
+    "config": {
+      "arguments": {
+        "compact": true,
+        "distributed": true,
+        "evacuate": true,
+        "firmware_image": null,
+        "firmware_platform": "qemu",
+        "firmware_robots": 0,
+        "firmware_strategy": "auto",
+        "firmware_tool_root": null,
+        "fps": 30,
+        "hazard_switch_min_gain": 0.15,
+        "height": null,
+        "latest_evidence": true,
+        "live_disaster": true,
+        "mission_horizon_s": null,
+        "no_cache": false,
+        "no_render": true,
+        "out": "/home/zypher/Music/pjt1/SwarmRescue/outputs/releases/0.7.0/validation/missions",
+        "range_gbp": true,
+        "range_radio": true,
+        "range_rounds": 3,
+        "range_target_sources": 0,
+        "region_cells": 4,
+        "report": "/home/zypher/Music/pjt1/SwarmRescue/outputs/releases/0.7.0/validation/seed19-complete-native.json",
+        "rescue_assignment": "complete",
+        "robots": 8,
+        "seed": 19,
+        "sensing_interval_s": 0.0,
+        "speed": null,
+        "width": null
+      },
+      "params": {
+        "building": {
+          "bay_depth": 3,
+          "beam_depth_m": 0.35,
+          "beam_width_m": 0.25,
+          "column_side_m": 0.35,
+          "door_prob_length_scale_m": 6.0,
+          "door_width_m": 0.9,
+          "duct_size_m": [
+            1.2,
+            1.2
+          ],
+          "exit_width_m": 1.6,
+          "footprint_m": [
+            14.0,
+            10.0
+          ],
+          "max_room_aspect": 3.2,
+          "min_bay_area_m2": 16.0,
+          "min_doors_per_room": 1,
+          "min_room_area_m2": 7.0,
+          "min_room_side_m": 2.0,
+          "n_ducts": 0,
+          "n_exits": 2,
+          "n_shafts": 1,
+          "n_stairwells": 1,
+          "n_storeys": 3,
+          "room_depth": 1,
+          "shaft_size_m": [
+            1.8,
+            1.8
+          ],
+          "slab_thickness_m": 0.2,
+          "split_jitter": 0.16,
+          "stairwell_size_m": [
+            4.0,
+            2.8
+          ],
+          "storey_height_m": 3.0,
+          "wall_thickness_m": 0.15
+        },
+        "collapse": {
+          "blast_radius_m": 2.2,
+          "max_destroyed_column_fraction": 0.4,
+          "min_destroyed_column_fraction": 0.15,
+          "quiescent_kinetic_energy_j": 5.0,
+          "quiescent_ticks": 250,
+          "settle_seconds": 6.0,
+          "timestep_s": 0.002
+        },
+        "traversability": {
+          "max_slope_deg": 35.0,
+          "max_step_height_m": 0.13,
+          "min_clearance_m": 0.4039230484541327,
+          "min_squeeze_width_m": 0.3,
+          "robot_radius_m": 0.3297837794247944,
+          "voxel_height_m": 0.1,
+          "voxel_size_m": 0.25
+        }
+      }
+    },
+    "versions": {
+      "python": "3.12.13",
+      "numpy": "2.5.1",
+      "mujoco": "3.10.0",
+      "pillow": "12.3.0",
+      "imageio": "2.37.4"
+    },
+    "metrics": {
+      "accepted": true,
+      "radio_bytes": 36096,
+      "distributed_physical": true
+    },
+    "source_kind": "installed_distribution",
+    "source_fingerprint": "105d9a17ef9d6bfd09c83edbf6c2db53ad1990d639722c7838defa2832237c3d",
+    "package_version": "0.7.0"
+  },
+  "range_factor_transport_modeled": true,
+  "localization_assignment_transport_modeled": false,
+  "localization_anchor_prior_transport_modeled": false,
+  "physical_survivor_evacuation": true,
+  "preflight_certificate_is_physical_dose_guarantee": false,
+  "preflight_checks_assignment_candidates": true,
+  "rescue_acceptance_gate_met": true,
+  "survivor_physiology_calibrated": false,
+  "embedded_timing_calibrated": false,
+  "whole_phase1_acceptance_gate_met": false,
+  "native_host_integer_routing": true,
+  "live_firmware_routing": false,
+  "whole_robot_firmware": false,
+  "whole_embedded_memory_gate_met": false,
+  "host_fine_geometry_refinement": true
+}

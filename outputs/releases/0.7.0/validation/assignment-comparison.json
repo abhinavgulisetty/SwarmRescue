@@ -1,0 +1,14 @@
+{
+  "complete": {
+    "last_evacuation_s": 82.928,
+    "survivor_exposure_proxy": 8.289298709202399
+  },
+  "distance": {
+    "last_evacuation_s": 81.396,
+    "survivor_exposure_proxy": 8.825713661088622
+  },
+  "relative_change_percent": {
+    "last_evacuation_s": 1.8821563713204537,
+    "survivor_exposure_proxy": -6.077864889852536
+  }
+}

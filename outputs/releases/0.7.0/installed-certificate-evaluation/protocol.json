@@ -1,0 +1,56 @@
+{
+  "budgets": [
+    [
+      3,
+      4
+    ],
+    [
+      5,
+      6
+    ],
+    [
+      7,
+      9
+    ]
+  ],
+  "candidate_routes_per_mission": 3,
+  "dependencies": {
+    "networkx": "3.6.1",
+    "numpy": "2.5.1",
+    "python": "3.12.13"
+  },
+  "dt": 0.5,
+  "external_method": {
+    "adaptation": "fixed-scenario routing uses each whole hazard tensor as a scenario; nominal comparator fixes all escort durations to their lower bounds, omitting robust lag",
+    "documentation": "https://networkx.org/documentation/stable/reference/algorithms/generated/networkx.algorithms.dag.dag_longest_path.html",
+    "implementation": "NetworkX dag_longest_path on independently materialized stage/time graphs",
+    "library_citation": "Hagberg, Schult and Swart, Exploring Network Structure, Dynamics, and Function using NetworkX, SciPy 2008",
+    "paper": "https://proceedings.scipy.org/articles/TCWV9851.pdf",
+    "robust_routing_reference": "https://doi.org/10.1016/S0305-0548(97)00085-3"
+  },
+  "grid": [
+    4,
+    4
+  ],
+  "hazard_ticks": 48,
+  "missions": 96,
+  "paired_integer_check": {
+    "comparison": "exact equality of both actor bounds; a separately defined synthetic objective",
+    "dt": 1,
+    "field_definition": "ceil(float_synthetic_field * 256).astype(int64)",
+    "oracle_arithmetic": "Python integer arc weights and path sums"
+  },
+  "removed_nodes_per_mission": 1,
+  "research_date": "2026-10-16",
+  "scope": "synthetic single-robot single-survivor complete missions; origin-held edge exposure; refuge absorbing; no physical/fleet claims",
+  "seed": 20261016,
+  "selection": "among certified candidates minimize latest completion, then survivor bound, then candidate index",
+  "source_scenarios": 3,
+  "source_sha256": {
+    "ember/rescue_certificate.py": "f18e5132024d9e347ce2955cef53613f6a84bf47109daa9819c8512eae32cdab",
+    "eval/lag_rescue_validation.py": "7ad238e2459cb02cbc88832f7f0e456ec91a5fbe710b6c913775ddbebda17885"
+  },
+  "test_source_sha256": null,
+  "tests_bundled_with_runtime": false,
+  "uncertainty": "one scenario for entire rescue; independent integer escort edge durations in declared intervals"
+}

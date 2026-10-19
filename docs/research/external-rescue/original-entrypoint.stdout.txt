@@ -1,0 +1,73 @@
+Setting up path planner...
+
+...Defining sets...
+...Defining state transition dynamics...
+...Reading samples...
+...Preparing matrices for dynamic programming algorithm...
+Finished setting up path planner!
+
+...Reading function frame...
+---  Forward_Greedy  ---
+
+Setting up task allocator...
+Finished setting up task allocator!
+
+---Solution for Forward_Greedy ---
+Calculation time [s]:
+{'setup_time': 54.4562087059021, 'calculation_time': 370.41495418548584}
+Optimal value:
+{'multiplicative': 0.6987007497806219, 'group': 0.7422}
+alpha_G: 0.9888145691659612
+gamma_G: 0.652910804771197
+Optimal task allocation:
+
+           task_i  task_ii  task_iii  task_iv  task_v
+robot_1    True     True      True    False   False
+robot_2   False    False     False     True   False
+robot_3   False    False     False    False    True 
+
+---  Reverse_Greedy  ---
+
+Setting up task allocator...
+Finished setting up task allocator!
+
+---Solution for Reverse_Greedy ---
+Calculation time [s]:
+{'setup_time': 715.6255950927734, 'calculation_time': 1024.223639011383}
+Optimal value:
+{'multiplicative': 0.7166217852020254, 'group': 0.758}
+alpha_G: 0.4829703099125138
+gamma_G: 0.5247434604337834
+Optimal task allocation:
+
+           task_i  task_ii  task_iii  task_iv  task_v
+robot_1   False     True      True    False   False
+robot_2    True    False     False     True   False
+robot_3   False    False     False    False    True 
+
+---  Brute_Force  ---
+
+---Solution for Brute_Force ---
+Calculation time [s]:
+{'calculation_time': 17598.59931731224}
+Optimal value:
+{'multiplicative': 0.7166217852020254, 'group': 0.758}
+Optimal task allocation:
+
+           task_i  task_ii  task_iii  task_iv  task_v
+robot_1   False     True      True    False   False
+robot_2    True    False     False     True   False
+robot_3   False    False     False    False    True 
+
+---Solution for Brute_Force ---
+Calculation time [s]:
+{'calculation_time': 17598.59931731224}
+Optimal value:
+{'multiplicative': 0.2829263559597008, 'group': 0.4146}
+Optimal task allocation:
+
+           task_i  task_ii  task_iii  task_iv  task_v
+robot_1    True     True     False     True    True
+robot_2   False    False      True    False   False
+robot_3   False    False     False    False   False 
+

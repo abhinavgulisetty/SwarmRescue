@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "all_nontiming_result_fields_identical": true,
+  "protocol_identical": true,
+  "protocol_sha256": "d7595401064ad8b0937f5b095e1b879575cb3045fc642f445e26e28efd75a84b",
+  "exact_integer_cases": 288,
+  "integer_exact_mismatches": 0,
+  "scenario_timing_replays": 5352,
+  "all_selected_replays_within_budgets": true,
+  "source_results_sha256": "9e14cfcde86c415e7a8993f0915515a854ff8be24b0755c5be9c169d5e2f2a47",
+  "reproduced_results_sha256": "030d0c247d66e4fff0e5d3edf75b3a682c5cc4d9d076196cdf76cb5938267534"
+}
