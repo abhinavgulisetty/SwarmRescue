@@ -19,6 +19,7 @@ jobs:
     timeout-minutes: 30
     env:
       MUJOCO_GL: egl
+      LIBGL_ALWAYS_SOFTWARE: "1"
       OPENBLAS_NUM_THREADS: "1"
       OMP_NUM_THREADS: "1"
       PYTHONUNBUFFERED: "1"
@@ -35,6 +36,12 @@ jobs:
           python-version: "3.12"
           enable-cache: true
           cache-dependency-glob: uv.lock
+
+      - name: Install headless rendering libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libegl1 libegl-mesa0 libgl1 libgl1-mesa-dri
 
       - name: Install frozen dependencies
         run: uv sync --frozen --extra dev

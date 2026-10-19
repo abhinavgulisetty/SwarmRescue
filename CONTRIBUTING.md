@@ -14,7 +14,18 @@ uv run --frozen --extra dev ruff check .
 MUJOCO_GL=egl uv run --frozen --extra dev pytest -ra
 ```
 
-Linux rendering uses EGL by default. A C compiler is needed for native firmware
+Linux rendering uses EGL by default. On a minimal Ubuntu installation, install
+the Mesa/EGL runtime libraries before importing MuJoCo:
+
+```bash
+sudo apt-get update
+sudo apt-get install --yes --no-install-recommends \
+  libegl1 libegl-mesa0 libgl1 libgl1-mesa-dri
+```
+
+CI sets `LIBGL_ALWAYS_SOFTWARE=1` to use Mesa without requiring a GPU. These
+system libraries are needed in addition to the Python dependencies.
+A C compiler is needed for native firmware
 conformance. The full default suite runs headlessly; ARM tests report skips when
 `arm-none-eabi-gcc` and `qemu-system-arm` are unavailable. To include the optional
 ARM tests, put those tools on `PATH` or supply their installation root:
